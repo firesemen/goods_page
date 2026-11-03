@@ -15,7 +15,7 @@ import ru.fridgedays.core.*;
 /** Foreground-only, encrypted bidirectional LAN sync. Never sends an invitation/key. */
 public final class NearbySync implements AutoCloseable {
     private static final String TYPE="_fridgedays._tcp.";
-    private final Store store;
+    private final SyncReplica store;
     private final NsdManager nsd;
     private final Consumer<String> status;
     private final Invitation invitation;
@@ -29,12 +29,12 @@ public final class NearbySync implements AutoCloseable {
     private WifiManager.MulticastLock multicast;
     private NsdManager.RegistrationListener registration;
     private NsdManager.DiscoveryListener discovery;
-    public NearbySync(Context c,Store store,Consumer<String> status)throws Exception{
+    public NearbySync(Context c,SyncReplica store,Consumer<String> status)throws Exception{
         this.store=store;this.invitation=store.invitation();this.status=status;nsd=c.getSystemService(NsdManager.class);
         WifiManager wifi=c.getApplicationContext().getSystemService(WifiManager.class);multicast=wifi.createMulticastLock("fridge-discovery");multicast.setReferenceCounted(false);multicast.acquire();
         try{server=new ServerSocket(0);workers.execute(this::listen);
             String prefix="FD-"+invitation.family.substring(0,8)+"-"+invitation.fridge.substring(0,4);
-            String name=prefix+"-"+store.actor.substring(0,8);
+            String name=prefix+"-"+store.actorId().substring(0,8);
             NsdServiceInfo info=new NsdServiceInfo();info.setServiceName(name);info.setServiceType(TYPE);info.setPort(server.getLocalPort());
             registration=new NsdManager.RegistrationListener(){public void onServiceRegistered(NsdServiceInfo i){}public void onRegistrationFailed(NsdServiceInfo i,int e){status.accept("Не удалось объявить телефон в Wi-Fi");}public void onServiceUnregistered(NsdServiceInfo i){}public void onUnregistrationFailed(NsdServiceInfo i,int e){}};
             nsd.registerService(info,NsdManager.PROTOCOL_DNS_SD,registration);
@@ -42,7 +42,7 @@ public final class NearbySync implements AutoCloseable {
                 public void onDiscoveryStarted(String t){}public void onDiscoveryStopped(String t){}public void onServiceLost(NsdServiceInfo i){peers.remove(i.getServiceName());}
                 public void onStartDiscoveryFailed(String t,int e){status.accept("Поиск рядом недоступен в этой сети");}public void onStopDiscoveryFailed(String t,int e){}
                 public void onServiceFound(NsdServiceInfo i){
-                    if(!running||!i.getServiceName().startsWith(prefix)||i.getServiceName().contains(store.actor.substring(0,8))||!syncing.compareAndSet(false,true))return;
+                    if(!running||!i.getServiceName().startsWith(prefix)||i.getServiceName().contains(store.actorId().substring(0,8))||!syncing.compareAndSet(false,true))return;
                     nsd.resolveService(i,new NsdManager.ResolveListener(){
                         public void onResolveFailed(NsdServiceInfo s,int e){syncing.set(false);}
                         public void onServiceResolved(NsdServiceInfo s){

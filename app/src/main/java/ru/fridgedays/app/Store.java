@@ -12,7 +12,7 @@ import java.nio.charset.StandardCharsets;
 import ru.fridgedays.core.*;
 
 /** One transaction boundary shared by UI, LAN and scheduled jobs. DB stores only ciphertext. */
-public final class Store {
+public final class Store implements SyncReplica {
     private static Store instance;
     public static synchronized Store get(Context c)throws Exception{if(instance==null)instance=new Store(c.getApplicationContext());return instance;}
     private final SQLiteDatabase db;
@@ -52,6 +52,7 @@ public final class Store {
     }
     private void saveConfig()throws Exception{if(!prefs.edit().putString("invitation",wrap(invite.link())).commit())throw new IllegalStateException("Не удалось сохранить ключ");}
     public synchronized Invitation invitation(){return invite;}
+    public String actorId(){return actor;}
     public synchronized List<Product> products(){return ledger.products();}
     public synchronized Map<String,String> packets(){
         Map<String,String> result=new TreeMap<>();
