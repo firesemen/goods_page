@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "fridge-days-relay",
+  "main": "src/worker.js",
+  "compatibility_date": "2025-04-01",
+  "d1_databases": [
+    { "binding": "DB", "database_name": "fridge-days", "database_id": "REPLACE_WITH_CREATED_DATABASE_ID" }
+  ],
+  "vars": { "ROOMS": "{}" },
+  "observability": { "enabled": false }
+}
