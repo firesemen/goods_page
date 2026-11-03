@@ -1,1 +1,4 @@
-<resources><string name="photo_ready">Фото готово · %1$d КБ</string></resources>
+<resources>
+    <string name="photo_ready">Фото готово · %1$d КБ</string>
+    <string name="consumption_summary">Списать: %1$s %2$s · Останется: %3$s %2$s</string>
+</resources>

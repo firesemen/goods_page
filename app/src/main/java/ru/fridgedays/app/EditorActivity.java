@@ -16,7 +16,7 @@ import ru.fridgedays.core.*;
 
 public final class EditorActivity extends Activity {
     private Store store;private Product original;private String product,photo="";private Uri cameraUri;
-    private EditText name,count,unit,expiry,made,shelf;private TextView photoLabel;private Button save;
+    private EditText name,count,expiry,made,shelf;private Spinner unit,openingDays;private TextView photoLabel;private Button save;
     private final java.util.concurrent.ExecutorService io=java.util.concurrent.Executors.newSingleThreadExecutor();
     @Override public void onCreate(Bundle state){super.onCreate(state);
         try{store=Store.get(this);product=state==null?getIntent().getStringExtra("product"):state.getString("product");if(product!=null)for(Product p:store.products())if(p.id.equals(product))original=p;if(product==null)product=UUID.randomUUID().toString();
@@ -24,9 +24,12 @@ public final class EditorActivity extends Activity {
             LinearLayout root=Ui.column(this);Ui.inset(this,root);ScrollView scroll=new ScrollView(this);root.addView(scroll);LinearLayout form=Ui.column(this);form.setPadding(Ui.dp(this,20),Ui.dp(this,12),Ui.dp(this,20),Ui.dp(this,32));scroll.addView(form);setContentView(root);
             form.addView(Ui.button(this,"‹ Назад",this::finish));form.addView(Ui.title(this,original==null?"Новая упаковка":"Изменить продукт"));
             name=Ui.field(this,"Название",original==null?"":original.name,InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_FLAG_CAP_SENTENCES,form);
-            count=Ui.field(this,"Сколько осталось в упаковке",original==null?"1":String.valueOf(original.quantity),InputType.TYPE_CLASS_NUMBER,form);
-            unit=Ui.field(this,"Единица количества",original==null?"шт.":original.unit,InputType.TYPE_CLASS_TEXT,form);
+            name.setId(R.id.product_name_input);
+            count=Ui.field(this,"Сколько осталось в упаковке",original==null?"1":Amounts.display(original.quantityMilli),InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL,form);count.setId(R.id.quantity_input);count.setKeyListener(android.text.method.DigitsKeyListener.getInstance("0123456789.,"));
+            String currentUnit=original==null?"шт":original.unit;List<String> units=Ui.units(currentUnit);unit=Ui.dropdown(this,"Единица количества",units,units.indexOf(currentUnit),form);unit.setId(R.id.unit_selector);
+            openingDays=Ui.dropdown(this,"Срок после открытия",Ui.dayOptions(),original==null?2:original.openingDays-1,form);openingDays.setId(R.id.opening_days_selector);
             expiry=Ui.field(this,"Годен до (включительно)",original==null||original.printedExpiry==null?"":original.printedExpiry.toString(),InputType.TYPE_CLASS_DATETIME,form);datePicker(expiry,form);
+            expiry.setId(R.id.expiry_input);
             made=Ui.field(this,"Или дата изготовления", "",InputType.TYPE_CLASS_DATETIME,form);datePicker(made,form);
             shelf=Ui.field(this,"Срок хранения в днях", "",InputType.TYPE_CLASS_NUMBER,form);
             form.addView(Ui.button(this,"Рассчитать дату годности",()->{try{int d=Integer.parseInt(shelf.getText().toString());if(d<1||d>100_000)throw new IllegalArgumentException("Укажите срок от 1 до 100000 дней");expiry.setText(LocalDate.parse(made.getText().toString()).plusDays(d).toString());}catch(Exception e){Ui.error(this,new IllegalArgumentException("Укажите дату изготовления и положительный срок в днях"));}}));
@@ -36,8 +39,8 @@ public final class EditorActivity extends Activity {
             form.addView(Ui.button(this,"Сфотографировать",this::takePhoto));
             form.addView(Ui.button(this,"Убрать фото",()->{photo="";photoLabel.setText("Фото не добавлено");deleteDraft();}));
             save=Ui.button(this,"Сохранить упаковку",this::save);form.addView(save);
-            if(state!=null){name.setText(state.getString("name"));count.setText(state.getString("count"));unit.setText(state.getString("unit"));expiry.setText(state.getString("expiry"));made.setText(state.getString("made"));shelf.setText(state.getString("shelf"));String camera=state.getString("camera");cameraUri=camera==null?null:Uri.parse(camera);
-                File f=draft();if(f.exists())photo=new String(java.nio.file.Files.readAllBytes(f.toPath()),java.nio.charset.StandardCharsets.US_ASCII);photoLabel.setText(photo.isEmpty()?"Фото не добавлено":"Фото добавлено");}
+            if(state!=null){name.setText(state.getString("name"));count.setText(state.getString("count"));unit.setSelection(Math.max(0,units.indexOf(state.getString("unit",currentUnit))));openingDays.setSelection(state.getInt("openingDays",2));expiry.setText(state.getString("expiry"));made.setText(state.getString("made"));shelf.setText(state.getString("shelf"));String camera=state.getString("camera");cameraUri=camera==null?null:Uri.parse(camera);
+                File f=draft();if(state.getBoolean("photoEmpty",false))photo="";else if(f.exists())photo=new String(java.nio.file.Files.readAllBytes(f.toPath()),java.nio.charset.StandardCharsets.US_ASCII);photoLabel.setText(photo.isEmpty()?"Фото не добавлено":"Фото добавлено");}
         }catch(Exception e){Ui.error(this,e);}
     }
     private File draft(){return new File(getCacheDir(),"photo-"+product+".txt");}
@@ -63,22 +66,24 @@ public final class EditorActivity extends Activity {
         }catch(Exception e){runOnUiThread(()->{photoLabel.setText("Фото не обработано");save.setEnabled(true);Ui.error(this,e);});}finally{if(request==22)cleanCamera();}});
     }
     private void save(){try{
-        String title=name.getText().toString().trim(),u=unit.getText().toString().trim();int qty=Integer.parseInt(count.getText().toString());LocalDate date=LocalDate.parse(expiry.getText().toString());
-        if(title.trim().isEmpty()||u.trim().isEmpty()||qty<(original==null?1:0)||qty>100_000)throw new IllegalArgumentException("Укажите название, единицу и количество: новая упаковка от 1, существующая от 0, максимум 100000");
-        Map<String,String> fields=new HashMap<>();fields.put("name",title);fields.put("unit",u);fields.put("expiry",date.toString());fields.put("photo",photo);
-        if(original==null)fields.put("initialQuantity",Integer.toString(qty));
+        String title=name.getText().toString().trim(),u=unit.getSelectedItem().toString();long qty=Amounts.parse(count.getText().toString());int days=openingDays.getSelectedItemPosition()+1;LocalDate date=LocalDate.parse(expiry.getText().toString());
+        if(title.isEmpty()||qty<(original==null?1:0))throw new IllegalArgumentException("Укажите название и положительное количество; для существующей упаковки допускается 0");
+        if(Amounts.countable(u)&&qty%1000!=0)throw new IllegalArgumentException("Для штук, упаковок и порций укажите целое количество");
+        Map<String,String> fields=new HashMap<>();fields.put("name",title);fields.put("unit",u);fields.put("expiry",date.toString());fields.put("photo",photo);fields.put("openingDays",Integer.toString(days));
+        if(original==null)fields.put("initialQuantity",Amounts.format(qty));
         save.setEnabled(false);io.execute(()->{try{
             if(original!=null){
                 if(title.equals(original.name))fields.remove("name");
                 if(u.equals(original.unit))fields.remove("unit");
                 if(date.equals(original.printedExpiry))fields.remove("expiry");
                 if(photo.equals(original.photo))fields.remove("photo");
+                if(days==original.openingDays)fields.remove("openingDays");
             }
             if(!fields.isEmpty())store.change(product,fields);
-            if(original!=null){int delta=qty-original.quantity;if(delta!=0)store.change(product,Map.of("delta",Integer.toString(delta)));}
+            if(original!=null){long delta=qty-original.quantityMilli;if(delta!=0)store.change(product,Map.of("delta",Amounts.format(delta)));}
             deleteDraft();runOnUiThread(()->{setResult(RESULT_OK);finish();});
         }catch(Exception e){runOnUiThread(()->{save.setEnabled(true);Ui.error(this,e);});}});
     }catch(Exception e){Ui.error(this,e);}}
-    @Override protected void onSaveInstanceState(Bundle s){super.onSaveInstanceState(s);if(name!=null){s.putString("product",product);s.putString("name",name.getText().toString());s.putString("count",count.getText().toString());s.putString("unit",unit.getText().toString());s.putString("expiry",expiry.getText().toString());s.putString("made",made.getText().toString());s.putString("shelf",shelf.getText().toString());if(cameraUri!=null)s.putString("camera",cameraUri.toString());}}
+    @Override protected void onSaveInstanceState(Bundle s){super.onSaveInstanceState(s);if(name!=null){s.putString("product",product);s.putString("name",name.getText().toString());s.putString("count",count.getText().toString());s.putString("unit",unit.getSelectedItem().toString());s.putInt("openingDays",openingDays.getSelectedItemPosition());s.putBoolean("photoEmpty",photo.isEmpty());s.putString("expiry",expiry.getText().toString());s.putString("made",made.getText().toString());s.putString("shelf",shelf.getText().toString());if(cameraUri!=null)s.putString("camera",cameraUri.toString());}}
     @Override protected void onDestroy(){io.shutdown();super.onDestroy();}
 }

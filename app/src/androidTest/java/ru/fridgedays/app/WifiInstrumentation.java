@@ -44,7 +44,7 @@ public final class WifiInstrumentation extends Instrumentation {
             List<String> leftStatus=new CopyOnWriteArrayList<>(),rightStatus=new CopyOnWriteArrayList<>();
             String sausages=UUID.randomUUID().toString(),yogurt=UUID.randomUUID().toString();
             a.change(sausages,Map.of("name","Сосиски","initialQuantity","3","unit","шт.","expiry",LocalDate.now().plusDays(10).toString()));
-            b.change(yogurt,Map.of("name","Йогурт","initialQuantity","1","unit","шт.","expiry",LocalDate.now().plusDays(5).toString()));
+            b.change(yogurt,Map.of("name","Йогурт","initialQuantity","1.5","unit","л","expiry",LocalDate.now().plusDays(15).toString()));
             // More than 20 events and more than one photo-size transfer batch, in both directions.
             String photo=java.util.Base64.getEncoder().encodeToString(new byte[170_000]);
             for(int n=0;n<26;n++)a.change(sausages,Map.of("unit",n%2==0?"шт.":"штук"));
@@ -59,14 +59,16 @@ public final class WifiInstrumentation extends Instrumentation {
             check(other.packets().isEmpty(),"uninvited family receives no operations");
 
             left.close();left=null;right.close();right=null;
-            a.change(sausages,Map.of("delta","-1"));b.change(sausages,Map.of("delta","-1"));a.change(sausages,Map.of("opened",LocalDate.now().toString()));
+            a.change(sausages,Map.of("delta","-1"));b.change(sausages,Map.of("delta","-1"));a.change(sausages,Map.of("opened",LocalDate.now().toString(),"openingDays","7"));
             b.change(yogurt,Map.of("deleted","true"));a.change(yogurt,Map.of("name","Йогурт новая этикетка"));
+            a.change(yogurt,Map.of("delta","-0.25"));b.change(yogurt,Map.of("delta","-0.125"));
             check(product(a,sausages).quantity==2&&product(b,sausages).quantity==2,"offline operations remain separate before reconnection");
             left=new NearbySync(getTargetContext(),a,leftStatus::add);right=new NearbySync(getTargetContext(),b,rightStatus::add);
             progress("Waiting for reconnection and merge of offline changes");
-            until(()->a.packets().size()==37&&b.packets().size()==37,"Reconnection failed to exchange offline changes");
+            until(()->a.packets().size()==39&&b.packets().size()==39,"Reconnection failed to exchange offline changes");
             check(product(a,sausages).quantity==1&&product(b,sausages).quantity==1,"two offline consumption actions retain the correct remaining quantity");
-            check(product(a,sausages).expiry.equals(LocalDate.now().plusDays(3))&&product(b,sausages).opened!=null,"opening date and expiry synchronized");
+            check(product(a,sausages).expiry.equals(LocalDate.now().plusDays(7))&&product(b,sausages).openingDays==7,"custom opening date and duration synchronized");
+            check(product(a,yogurt).quantityMilli==1125&&product(b,yogurt).quantityMilli==1125,"fractional quantities synchronize exactly across offline peers");
             check(product(a,yogurt).deleted&&product(b,yogurt).deleted,"concurrent rename does not resurrect deleted packaging");
             check(a.packets().equals(b.packets()),"both ciphertext journals match after reconnect");
 
@@ -78,7 +80,7 @@ public final class WifiInstrumentation extends Instrumentation {
             until(()->leftStatus.stream().anyMatch(s->s.startsWith("Синхронизировано"))&&rightStatus.stream().anyMatch(s->s.startsWith("Синхронизировано")),"Repeat exchange failed");
             check(a.packets().size()==count&&b.packets().size()==count&&product(a,sausages).quantity==1&&product(b,sausages).quantity==1,"repeated exchanges are idempotent");
             check(other.packets().isEmpty(),"family isolation holds across reconnection");
-            result.putString("stream","PASS: "+checks+" Wi-Fi checks with 2 independent journals, Android NSD and production sockets; 37 unique events\n");result.putInt("checks",checks);sendStatus(0,status());finish(Activity.RESULT_OK,result);
+            result.putString("stream","PASS: "+checks+" Wi-Fi checks with 2 independent journals, Android NSD and production sockets; 39 unique events\n");result.putInt("checks",checks);sendStatus(0,status());finish(Activity.RESULT_OK,result);
         }catch(Throwable e){String message="FAIL after "+checks+" Wi-Fi checks: "+e+"\n"+android.util.Log.getStackTraceString(e);Bundle failed=status();failed.putString("stack",message);sendStatus(-2,failed);result.putString("stream",message);finish(Activity.RESULT_CANCELED,result);
         }finally{if(left!=null)left.close();if(right!=null)right.close();if(outsider!=null)outsider.close();}
     }

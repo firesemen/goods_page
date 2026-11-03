@@ -43,7 +43,7 @@ public final class SmokeInstrumentation extends Instrumentation {
         // Actual native form, actual MediaStore URI, ImageDecoder compression, asynchronous save.
         String yogurtName="Проверка йогурт "+UUID.randomUUID().toString().substring(0,8);
         EditorActivity editor=(EditorActivity)startActivitySync(new Intent(context,EditorActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));waitForIdleSync();
-        runOnMainSync(()->{List<EditText> fields=views(editor).stream().filter(v->v instanceof EditText).map(v->(EditText)v).collect(java.util.stream.Collectors.toList());fields.get(0).setText(yogurtName);fields.get(1).setText("2");fields.get(2).setText("шт.");fields.get(3).setText(today.toString());});
+        runOnMainSync(()->{((EditText)editor.findViewById(R.id.product_name_input)).setText(yogurtName);((EditText)editor.findViewById(R.id.quantity_input)).setText("2");((EditText)editor.findViewById(R.id.expiry_input)).setText(today.toString());});
         ContentValues values=new ContentValues();values.put(MediaStore.Images.Media.DISPLAY_NAME,"fridge-test.jpg");values.put(MediaStore.Images.Media.MIME_TYPE,"image/jpeg");Uri uri=context.getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,values);
         Bitmap bitmap=Bitmap.createBitmap(1600,1200,Bitmap.Config.ARGB_8888);bitmap.eraseColor(Color.GREEN);try(OutputStream out=context.getContentResolver().openOutputStream(uri)){bitmap.compress(Bitmap.CompressFormat.JPEG,95,out);}bitmap.recycle();
         runOnMainSync(()->editor.onActivityResult(21,Activity.RESULT_OK,new Intent().setData(uri)));

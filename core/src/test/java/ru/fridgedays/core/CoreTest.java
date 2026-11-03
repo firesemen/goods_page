@@ -61,6 +61,26 @@ public final class CoreTest {
         Ledger leap=new Ledger();leap.change(a,uuid(),Map.of("name","Кефир","expiry","2028-03-20","opened","2028-02-27"));check(first(leap).expiry.toString().equals("2028-03-01"),"calendar days across leap day");
         Ledger exhausted=new Ledger();exhausted.merge(List.of(create));exhausted.change(a,p,Map.of("delta","-3"));exhausted.change(b,p,Map.of("delta","-1"));check(first(exhausted).quantity==0,"concurrent consumption never shows negative stock");
         check(Crypto.sha256("abc").equals("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"),"relay registration SHA256 agrees with standard vector");
+        check(first(exhausted).openingDays==3&&Amounts.parse(create.fields.get("initialQuantity"))==3000,"legacy packets retain 3 days and their original unit quantities");
+        Ledger customDays=new Ledger();String custom=uuid();customDays.change(a,custom,Map.of("name","Молоко","initialQuantity","1.5","unit","л","expiry","2026-12-20","opened","2026-11-04","openingDays","7"));
+        check(first(customDays).expiry.toString().equals("2026-11-11"),"custom 7 calendar days after opening");
+        customDays.change(a,custom,Map.of("openingDays","1"));check(first(customDays).expiry.toString().equals("2026-11-05"),"changing opening duration recalculates from original opening date");
+        customDays.change(a,custom,Map.of("openingDays","30","expiry","2026-11-06"));check(first(customDays).expiry.toString().equals("2026-11-06"),"custom duration never extends package expiry");
+        customDays.change(a,custom,Map.of("opened",""));check(first(customDays).expiry.equals(first(customDays).printedExpiry),"undo custom opening restores printed expiry");
+        Ledger fractionalA=new Ledger(),fractionalB=new Ledger();Operation litre=fractionalA.change(a,uuid(),Map.of("name","Молоко","unit","л","initialQuantity","0.3","expiry","2026-12-20"));fractionalB.merge(List.of(litre));
+        fractionalA.change(a,litre.product,Map.of("delta","-0.1"));fractionalB.change(b,litre.product,Map.of("delta","-0.1"));fractionalA.merge(fractionalB.operations());fractionalB.merge(fractionalA.operations());
+        check(first(fractionalA).quantityMilli==100&&first(fractionalB).quantityMilli==100,"fractional offline consumption has no floating point drift");
+        check(Amounts.parse("1,25")==1250&&Amounts.display(1250).equals("1,25")&&Amounts.format(1250).equals("1.25"),"Russian decimal input and canonical wire format");
+        check(Amounts.sliderStep("мл",500000)==1000&&Amounts.sliderStep("л",1500)==1&&Amounts.sliderStep("шт",3000)==1000,"slider uses whole ml/items and thousandths of litres");
+        rejects(()->Amounts.parse("0.0001"),"precision limit");rejects(()->Amounts.parse("1e3"),"scientific notation rejected");rejects(()->Amounts.parse("100001"),"quantity bounds");
+        rejects(()->new Operation(uuid(),a,p,1,Map.of("openingDays","0")),"opening days zero rejected");rejects(()->new Operation(uuid(),a,p,1,Map.of("openingDays","366")),"opening days overflow rejected");
+        Ledger colours=new Ledger();String cp=uuid();LocalDate date=LocalDate.of(2026,11,4);colours.change(a,cp,Map.of("name","Тест","expiry",date.plusDays(2).toString()));
+        check(first(colours).expiryState(date)==Product.ExpiryState.GREEN,"green at 2 days remaining");
+        colours.change(a,cp,Map.of("expiry",date.plusDays(1).toString()));check(first(colours).expiryState(date)==Product.ExpiryState.YELLOW,"yellow tomorrow");
+        colours.change(a,cp,Map.of("expiry",date.toString()));check(first(colours).expiryState(date)==Product.ExpiryState.YELLOW,"yellow today");
+        colours.change(a,cp,Map.of("expiry",date.minusDays(1).toString()));check(first(colours).expiryState(date)==Product.ExpiryState.RED,"red at 1 expired day");
+        colours.change(a,cp,Map.of("expiry",date.minusDays(2).toString()));check(first(colours).expiryState(date)==Product.ExpiryState.RED,"red at exactly 2 expired days");
+        colours.change(a,cp,Map.of("expiry",date.minusDays(3).toString()));check(first(colours).expiryState(date)==Product.ExpiryState.BLACK,"black beyond 2 expired days");
         System.out.println("PASS: "+checks+" checks (dates, convergence, duplicate delivery, deletion, codecs, encryption, backups)");
     }
 }

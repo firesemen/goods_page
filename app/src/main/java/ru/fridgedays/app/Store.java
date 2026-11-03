@@ -54,6 +54,7 @@ public final class Store implements SyncReplica {
     public synchronized Invitation invitation(){return invite;}
     public String actorId(){return actor;}
     public synchronized List<Product> products(){return ledger.products();}
+    public synchronized int operationCount(){return ledger.size();}
     public synchronized Map<String,String> packets(){
         Map<String,String> result=new TreeMap<>();
         try(Cursor c=db.rawQuery("SELECT id,payload FROM packets WHERE room=?",new String[]{invite.room()})){while(c.moveToNext())result.put(c.getString(0),c.getString(1));}return result;

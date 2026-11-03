@@ -23,13 +23,14 @@ public final class Ledger {
         merge(List.of(op)); return op;
     }
     public synchronized List<Operation> operations(){return new ArrayList<>(operations.values());}
+    public synchronized int size(){return operations.size();}
     public synchronized List<Product> products() {
         Map<String,Map<String,Operation>> winners=new HashMap<>();
         Map<String,Long> deltas=new HashMap<>();
         for(Operation op:operations.values()){
             Map<String,Operation> fields=winners.computeIfAbsent(op.product, k->new HashMap<>());
             for(String k:op.fields.keySet()) {
-                if(k.equals("delta")){ deltas.merge(op.product,Long.parseLong(op.fields.get(k)),Long::sum); continue; }
+                if(k.equals("delta")){ deltas.merge(op.product,Amounts.parse(op.fields.get(k)),Long::sum); continue; }
                 Operation old=fields.get(k);
                 if(old==null||Operation.compare(op,old)>0)fields.put(k,op);
             }
