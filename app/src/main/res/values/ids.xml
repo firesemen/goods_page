@@ -1,4 +1,5 @@
 <resources>
+    <item name="page_scroll" type="id" />
     <item name="toolbar_settings" type="id" /><item name="family_label" type="id" /><item name="bottom_nav" type="id" />
     <item name="filter_all" type="id" /><item name="filter_soon" type="id" /><item name="filter_expired" type="id" /><item name="filter_empty" type="id" /><item name="add_product" type="id" />
     <item name="unit_selector" type="id" /><item name="opening_days_selector" type="id" /><item name="quantity_input" type="id" /><item name="expiry_input" type="id" /><item name="product_name_input" type="id" />

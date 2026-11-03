@@ -26,22 +26,55 @@ public final class MainActivity extends Activity {
     private final java.util.concurrent.atomic.AtomicBoolean cloudRequested=new java.util.concurrent.atomic.AtomicBoolean();
     private int renderedOperations=-1;
     private String previousTab="fridge";
+    private ScrollView pageScroll;
+    private String renderedPageKey;
+    private boolean restoringScroll;
+    private final Map<String,ScrollPosition> scrollPositions=new HashMap<>();
+    private static final class ScrollPosition {
+        final int y,offset;final String anchor;
+        ScrollPosition(int y,String anchor,int offset){this.y=y;this.anchor=anchor;this.offset=offset;}
+    }
     private boolean visible;private char[] backupPassword;private boolean pendingImport;
     private final Runnable refreshCloud=new Runnable(){public void run(){if(visible&&store!=null&&!store.invitation().relay.isEmpty())syncCloud();if(visible)handler.postDelayed(this,60_000);}};
     @Override public void onCreate(Bundle state){super.onCreate(state);LinearLayout loading=Ui.column(this);loading.setPadding(32,64,32,32);loading.addView(Ui.title(this,"Сроки"));loading.addView(Ui.text(this,"Открываем холодильник…",16,Ui.MUTED));setContentView(loading);
         if(state!=null){tab=state.getString("tab","fridge");filter=state.getString("filter","Все");previousTab=state.getString("previousTab","fridge");if(filter.equals("Закончились"))filter="Закончилось";}
+        if(state!=null){Bundle positions=state.getBundle("scrollPositions");if(positions!=null)for(String key:positions.keySet()){Bundle p=positions.getBundle(key);if(p!=null)scrollPositions.put(key,new ScrollPosition(p.getInt("y"),p.getString("anchor"),p.getInt("offset")));}}
         io.execute(()->{try{store=Store.get(this);ReminderReceiver.schedule(this);SyncJob.schedule(this,store);try{ReminderReceiver.sendIfDue(this,store);}catch(Exception ignored){}runOnUiThread(()->{render();if(visible){startNearby();refreshCloud.run();}handleLink(getIntent());});}catch(Exception e){runOnUiThread(()->Ui.error(this,e));}});
     }
     @Override protected void onStart(){super.onStart();visible=true;if(store!=null){render();startNearby();handler.removeCallbacks(refreshCloud);refreshCloud.run();}}
-    @Override protected void onStop(){visible=false;handler.removeCallbacks(refreshCloud);stopNearby();super.onStop();}
+    @Override protected void onStop(){rememberScroll(null);visible=false;handler.removeCallbacks(refreshCloud);stopNearby();super.onStop();}
     @Override protected void onDestroy(){io.shutdown();network.shutdownNow();if(backupPassword!=null)Arrays.fill(backupPassword,'\0');super.onDestroy();}
-    @Override protected void onSaveInstanceState(Bundle b){super.onSaveInstanceState(b);b.putString("tab",tab);b.putString("filter",filter);b.putString("previousTab",previousTab);}
+    @Override protected void onSaveInstanceState(Bundle b){rememberScroll(null);super.onSaveInstanceState(b);b.putString("tab",tab);b.putString("filter",filter);b.putString("previousTab",previousTab);Bundle positions=new Bundle();for(var entry:scrollPositions.entrySet()){ScrollPosition value=entry.getValue();Bundle p=new Bundle();p.putInt("y",value.y);p.putString("anchor",value.anchor);p.putInt("offset",value.offset);positions.putBundle(entry.getKey(),p);}b.putBundle("scrollPositions",positions);}
     @Override protected void onNewIntent(Intent i){super.onNewIntent(i);setIntent(i);handleLink(i);}
     private void handleLink(Intent i){if(i!=null&&i.getData()!=null){String link=i.getData().toString();i.setData(null);new AlertDialog.Builder(this).setTitle("Присоединиться к холодильнику?").setMessage("Принимайте приглашение только от члена семьи.").setPositiveButton("Присоединиться",(d,w)->join(link)).setNegativeButton("Отмена",null).show();}}
-    private void render(){
+    private void rememberScroll(String preferredProduct){
+        if(pageScroll==null||renderedPageKey==null||restoringScroll||body==null||pageScroll.getHeight()==0)return;
+        int y=pageScroll.getScrollY();View anchor=null;
+        if(y>0&&renderedPageKey.startsWith("fridge:")){
+            if(preferredProduct!=null){View preferred=body.findViewWithTag("product:"+preferredProduct);if(preferred!=null&&visibleInPage(preferred,y))anchor=preferred;}
+            if(anchor==null)for(int n=0;n<body.getChildCount();n++){View child=body.getChildAt(n);if(child.getTag() instanceof String tag&&tag.startsWith("product:")&&visibleInPage(child,y)){anchor=child;break;}}
+        }
+        scrollPositions.put(renderedPageKey,new ScrollPosition(y,anchor==null?null:anchor.getTag().toString(),anchor==null?0:body.getTop()+anchor.getTop()-y));
+    }
+    private boolean visibleInPage(View view,int y){int top=body.getTop()+view.getTop();return top+view.getHeight()>y&&top<y+pageScroll.getHeight();}
+    private void restoreScroll(ScrollView scroll,ScrollPosition position){
+        scroll.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener(){public boolean onPreDraw(){
+            if(scroll.getViewTreeObserver().isAlive())scroll.getViewTreeObserver().removeOnPreDrawListener(this);
+            if(scroll!=pageScroll)return true;
+            int y=position==null?0:position.y;
+            if(position!=null&&position.anchor!=null){View anchor=body.findViewWithTag(position.anchor);if(anchor!=null)y=body.getTop()+anchor.getTop()-position.offset;}
+            scroll.scrollTo(0,Math.max(0,y));restoringScroll=false;return true;
+        }});
+    }
+    private void render(){render(null);}
+    private void render(String preferredProduct){
         if(store==null||isFinishing())return;
+        rememberScroll(preferredProduct);
+        String pageKey=tab.equals("fridge")?"fridge:"+filter:tab;
+        ScrollPosition position=scrollPositions.get(pageKey);
+        if(position==null&&pageKey.startsWith("fridge:")&&renderedPageKey!=null&&renderedPageKey.startsWith("fridge:"))position=scrollPositions.get(renderedPageKey);
         LinearLayout root=Ui.column(this);Ui.inset(this,root);root.setBackgroundColor(Ui.BG);setContentView(root);
-        ScrollView scroll=new ScrollView(this);root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));page=Ui.column(this);page.setPadding(Ui.dp(this,20),Ui.dp(this,20),Ui.dp(this,20),Ui.dp(this,20));scroll.addView(page);
+        ScrollView scroll=new ScrollView(this);scroll.setId(R.id.page_scroll);scroll.setFocusableInTouchMode(true);scroll.setDescendantFocusability(ViewGroup.FOCUS_BEFORE_DESCENDANTS);pageScroll=scroll;renderedPageKey=pageKey;restoringScroll=true;root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));page=Ui.column(this);page.setPadding(Ui.dp(this,20),Ui.dp(this,20),Ui.dp(this,20),Ui.dp(this,20));scroll.addView(page);
         statusView=null;renderedOperations=store.operationCount();
         LinearLayout toolbar=Ui.row(this);TextView familyLabel=Ui.text(this,"Семья",14,Ui.GREEN);familyLabel.setId(R.id.family_label);toolbar.addView(familyLabel,new LinearLayout.LayoutParams(0,-2,1));
         ImageButton gear=new ImageButton(this);gear.setId(R.id.toolbar_settings);gear.setImageResource(R.drawable.ic_settings);gear.setContentDescription("Настройки");gear.setBackground(Ui.background(Color.TRANSPARENT,24,this));gear.setPadding(Ui.dp(this,12),Ui.dp(this,12),Ui.dp(this,12),Ui.dp(this,12));toolbar.addView(gear,new LinearLayout.LayoutParams(Ui.dp(this,48),Ui.dp(this,48)));gear.setOnClickListener(v->{if(tab.equals("settings"))tab=previousTab;else{previousTab=tab;tab="settings";}render();});page.addView(toolbar);
@@ -52,6 +85,7 @@ public final class MainActivity extends Activity {
         LinearLayout nav=Ui.row(this);nav.setId(R.id.bottom_nav);nav.setPadding(Ui.dp(this,8),0,Ui.dp(this,8),0);
         String[][] tabs={{"fridge","Холодильник"},{"family","Семья"}};
         for(String[] item:tabs){Button b=Ui.button(this,item[1],()->{tab=item[0];render();});b.setTypeface(null,tab.equals(item[0])?Typeface.BOLD:Typeface.NORMAL);nav.addView(b,new LinearLayout.LayoutParams(0,-2,1));}root.addView(nav);
+        scroll.setOnScrollChangeListener((v,x,y,oldX,oldY)->{if(v==pageScroll&&!restoringScroll)rememberScroll(null);});scroll.requestFocus();restoreScroll(scroll,position);
     }
     private void fridge(){
         LocalDate today=ReminderReceiver.today(this);List<Product> all=store.products();long active=all.stream().filter(p->!p.deleted&&p.quantity>0).count();
@@ -86,7 +120,7 @@ public final class MainActivity extends Activity {
         LinearLayout more=Ui.row(this);card.addView(more);more.addView(Ui.button(this,"Изменить",()->startActivityForResult(new Intent(this,EditorActivity.class).putExtra("product",p.id),30)));
         more.addView(Ui.button(this,"Удалить",()->new AlertDialog.Builder(this).setTitle("Удалить «"+p.name+"»?").setMessage("Удаление будет передано второму телефону.").setPositiveButton("Удалить",(d,w)->change(p.id,Map.of("deleted","true"))).setNegativeButton("Отмена",null).show()));
     }
-    private void change(String product,Map<String,String> fields){io.execute(()->{try{store.change(product,fields);runOnUiThread(()->{status="Сохранено на телефоне";render();});if(!store.invitation().relay.isEmpty())enqueueCloud();}catch(Exception e){runOnUiThread(()->Ui.error(this,e));}});}
+    private void change(String product,Map<String,String> fields){io.execute(()->{try{store.change(product,fields);runOnUiThread(()->{status="Сохранено на телефоне";render(product);});if(!store.invitation().relay.isEmpty())enqueueCloud();}catch(Exception e){runOnUiThread(()->Ui.error(this,e));}});}
     private void showConsumption(Product product){
         long available=product.quantityMilli,step=Amounts.sliderStep(product.unit,available);
         LinearLayout content=Ui.column(this);content.setPadding(Ui.dp(this,20),Ui.dp(this,8),Ui.dp(this,20),Ui.dp(this,12));
@@ -98,7 +132,7 @@ public final class MainActivity extends Activity {
         Runnable validate=()->{try{long value=Amounts.parse(remaining.getText().toString());if(value<0||value>available||(Amounts.countable(product.unit)&&value%1000!=0))throw new IllegalArgumentException();selected[0]=value;remaining.setError(null);summary.setText(getString(R.string.consumption_summary,Amounts.display(available-value),product.unit,Amounts.display(value)));if(!changing[0]){changing[0]=true;slider.setProgress((int)(value/step));changing[0]=false;}if(dialog.getButton(AlertDialog.BUTTON_POSITIVE)!=null)dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(value<available);}catch(Exception e){remaining.setError("Укажите остаток от 0 до "+Amounts.display(available));if(dialog.getButton(AlertDialog.BUTTON_POSITIVE)!=null)dialog.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(false);}};
         remaining.addTextChangedListener(new android.text.TextWatcher(){public void beforeTextChanged(CharSequence s,int a,int count,int after){}public void onTextChanged(CharSequence s,int start,int before,int count){validate.run();}public void afterTextChanged(android.text.Editable e){}});
         slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onStartTrackingTouch(SeekBar s){}public void onStopTrackingTouch(SeekBar s){}public void onProgressChanged(SeekBar s,int progress,boolean fromUser){if(!changing[0]){changing[0]=true;remaining.setText(Amounts.display(progress*step));changing[0]=false;}}});
-        dialog.setOnShowListener(d->{validate.run();dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{long amount=available-selected[0];if(amount<=0)return;dialog.dismiss();io.execute(()->{try{synchronized(store){Product current=store.products().stream().filter(p->p.id.equals(product.id)).findFirst().orElseThrow();if(current.deleted||current.quantityMilli!=available||!current.unit.equals(product.unit))throw new IllegalStateException("Остаток изменился. Откройте списание ещё раз.");store.change(product.id,Map.of("delta",Amounts.format(-amount)));}runOnUiThread(()->{status="Сохранено на телефоне";render();});if(!store.invitation().relay.isEmpty())enqueueCloud();}catch(Exception e){runOnUiThread(()->Ui.error(this,e));}});});});dialog.show();
+        dialog.setOnShowListener(d->{validate.run();dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{long amount=available-selected[0];if(amount<=0)return;dialog.dismiss();io.execute(()->{try{synchronized(store){Product current=store.products().stream().filter(p->p.id.equals(product.id)).findFirst().orElseThrow();if(current.deleted||current.quantityMilli!=available||!current.unit.equals(product.unit))throw new IllegalStateException("Остаток изменился. Откройте списание ещё раз.");store.change(product.id,Map.of("delta",Amounts.format(-amount)));}runOnUiThread(()->{status="Сохранено на телефоне";render(product.id);});if(!store.invitation().relay.isEmpty())enqueueCloud();}catch(Exception e){runOnUiThread(()->Ui.error(this,e));}});});});dialog.show();
     }
     private void family(){
         body.addView(Ui.text(this,"Один холодильник — актуальный список у каждого",20,Ui.INK));
@@ -132,7 +166,7 @@ public final class MainActivity extends Activity {
         body.addView(Ui.button(this,"Проверить сводку сейчас",()->{try{ReminderReceiver.send(this,store,true);}catch(Exception e){Ui.error(this,e);}}));
         Ui.space(this,body,18);body.addView(Ui.text(this,"Резервная копия",21,Ui.INK));body.addView(Ui.text(this,"Фото, сроки и ключ семьи шифруются паролем. Без пароля восстановить копию нельзя. Она не заменяет автоматический обмен между телефонами.",14,Ui.MUTED));
         body.addView(Ui.button(this,"Сохранить зашифрованную копию",()->password(false)));body.addView(Ui.button(this,"Восстановить копию",()->password(true)));
-        body.addView(Ui.text(this,"Версия 0.2 · Android 12+ · хранение на телефоне",12,Ui.MUTED));
+        body.addView(Ui.text(this,"Версия 0.2.1 · Android 12+ · хранение на телефоне",12,Ui.MUTED));
     }
     private void password(boolean importing){EditText input=new EditText(this);input.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);input.setHint("Не менее 12 символов");new AlertDialog.Builder(this).setTitle(importing?"Пароль копии":"Задайте пароль копии").setView(input).setPositiveButton("Продолжить",(d,w)->{
         String p=input.getText().toString();if(p.length()<12){Ui.error(this,new IllegalArgumentException("Пароль должен содержать минимум 12 символов"));return;}if(backupPassword!=null)Arrays.fill(backupPassword,'\0');backupPassword=p.toCharArray();pendingImport=importing;
