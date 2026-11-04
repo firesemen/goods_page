@@ -1,0 +1,1 @@
+{"name":"fridge-photo-recognizer","private":true,"type":"module","scripts":{"test":"node test/recognizer.test.js"},"engines":{"node":">=22.13"}}

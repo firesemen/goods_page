@@ -18,6 +18,10 @@ public final class EditorActivity extends Activity {
     private Store store;private Product original;private String product,photo="";private Uri cameraUri;
     private EditText name,count,expiry,made,shelf;private Spinner unit,openingDays;private TextView photoLabel;private Button save;
     private final java.util.concurrent.ExecutorService io=java.util.concurrent.Executors.newSingleThreadExecutor();
+    private final java.util.concurrent.ExecutorService recognition=java.util.concurrent.Executors.newSingleThreadExecutor();
+    private final List<Button> photoButtons=new ArrayList<>();
+    private TextView ocrStatus;private Button cancelRecognition;private boolean datePhoto,recognizeAfter,processing,recognizing,destroyed;private int generation;
+    private OcrEngine localJob;private PhotoCloudClient cloudJob;private AlertDialog reviewDialog;
     @Override public void onCreate(Bundle state){super.onCreate(state);
         try{store=Store.get(this);product=state==null?getIntent().getStringExtra("product"):state.getString("product");if(product!=null)for(Product p:store.products())if(p.id.equals(product))original=p;if(product==null)product=UUID.randomUUID().toString();
             if(original!=null)photo=original.photo;
@@ -31,19 +35,35 @@ public final class EditorActivity extends Activity {
             expiry=Ui.field(this,"Годен до (включительно)",original==null||original.printedExpiry==null?"":original.printedExpiry.toString(),InputType.TYPE_CLASS_DATETIME,form);datePicker(expiry,form);
             expiry.setId(R.id.expiry_input);
             made=Ui.field(this,"Или дата изготовления", "",InputType.TYPE_CLASS_DATETIME,form);datePicker(made,form);
+            made.setId(R.id.manufactured_input);
             shelf=Ui.field(this,"Срок хранения в днях", "",InputType.TYPE_CLASS_NUMBER,form);
+            shelf.setId(R.id.shelf_input);
             form.addView(Ui.button(this,"Рассчитать дату годности",()->{try{int d=Integer.parseInt(shelf.getText().toString());if(d<1||d>100_000)throw new IllegalArgumentException("Укажите срок от 1 до 100000 дней");expiry.setText(LocalDate.parse(made.getText().toString()).plusDays(d).toString());}catch(Exception e){Ui.error(this,new IllegalArgumentException("Укажите дату изготовления и положительный срок в днях"));}}));
             form.addView(Ui.text(this,"Дата изготовления + число дней. Если на упаковке указано «годен до», используйте именно её.",12,Ui.MUTED));
             photoLabel=Ui.text(this,photo.isEmpty()?"Фото не добавлено":"Фото добавлено",14,Ui.MUTED);form.addView(photoLabel);
-            form.addView(Ui.button(this,"Выбрать фото",()->{Intent pick=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE);startActivityForResult(pick,21);}));
-            form.addView(Ui.button(this,"Сфотографировать",this::takePhoto));
-            form.addView(Ui.button(this,"Убрать фото",()->{photo="";photoLabel.setText("Фото не добавлено");deleteDraft();}));
+            addPhotoButton(form,"Выбрать фото",()->pickPhoto(false,false));
+            addPhotoButton(form,"Сфотографировать",()->{datePhoto=false;recognizeAfter=false;takePhoto();});
+            addPhotoButton(form,"Убрать фото",()->{photo="";photoLabel.setText("Фото не добавлено");deleteDraft();PhotoImages.clear(this,product);ocrStatus.setText("Снимки удалены. Можно заполнить вручную");});
+            Ui.space(this,form,12);form.addView(Ui.text(this,"Заполнить по фото",21,Ui.INK));
+            form.addView(Ui.text(this,"Снимите название и количество. Для даты можно добавить отдельный крупный снимок. После распознавания проверьте поля; карточка сохранится только по кнопке внизу.",14,Ui.MUTED));
+            addPhotoButton(form,"Распознать на телефоне",()->{if(!hasImages())choosePhoto(false,true);else recognize(false);}).setId(R.id.ocr_local);
+            addPhotoButton(form,"Снять срок крупно",()->{datePhoto=true;recognizeAfter=true;takePhoto();});
+            addPhotoButton(form,"Выбрать снимок срока",()->pickPhoto(true,true));
+            addPhotoButton(form,"Отправить фото в облако",this::confirmCloud).setId(R.id.ocr_cloud);
+            ocrStatus=Ui.text(this,"На телефоне · без интернета. Облако — только по отдельной кнопке",13,Ui.MUTED);ocrStatus.setId(R.id.ocr_status);form.addView(ocrStatus);
+            cancelRecognition=Ui.button(this,"Остановить распознавание",this::cancelRecognition);cancelRecognition.setId(R.id.ocr_cancel);cancelRecognition.setVisibility(View.GONE);form.addView(cancelRecognition);
             save=Ui.button(this,"Сохранить упаковку",this::save);form.addView(save);
             if(state!=null){name.setText(state.getString("name"));count.setText(state.getString("count"));unit.setSelection(Math.max(0,units.indexOf(state.getString("unit",currentUnit))));openingDays.setSelection(state.getInt("openingDays",2));expiry.setText(state.getString("expiry"));made.setText(state.getString("made"));shelf.setText(state.getString("shelf"));String camera=state.getString("camera");cameraUri=camera==null?null:Uri.parse(camera);
+                datePhoto=state.getBoolean("datePhoto");recognizeAfter=state.getBoolean("recognizeAfter");
                 File f=draft();if(state.getBoolean("photoEmpty",false))photo="";else if(f.exists())photo=new String(java.nio.file.Files.readAllBytes(f.toPath()),java.nio.charset.StandardCharsets.US_ASCII);photoLabel.setText(photo.isEmpty()?"Фото не добавлено":"Фото добавлено");}
         }catch(Exception e){Ui.error(this,e);}
     }
     private File draft(){return new File(getCacheDir(),"photo-"+product+".txt");}
+    private Button addPhotoButton(LinearLayout form,String title,Runnable action){Button button=Ui.button(this,title,action);photoButtons.add(button);form.addView(button);return button;}
+    private void busy(){if(save==null)return;save.setEnabled(!processing&&!recognizing);for(Button b:photoButtons)b.setEnabled(!processing&&!recognizing);cancelRecognition.setVisibility(recognizing?View.VISIBLE:View.GONE);}
+    private boolean hasImages(){return !photo.isEmpty()||PhotoImages.source(this,product,false).isFile()||PhotoImages.source(this,product,true).isFile();}
+    private void pickPhoto(boolean date,boolean recognize){datePhoto=date;recognizeAfter=recognize;Intent pick=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE);startActivityForResult(pick,21);}
+    private void choosePhoto(boolean date,boolean recognize){new AlertDialog.Builder(this).setTitle(date?"Маркировка срока":"Фото упаковки").setItems(new String[]{"Сфотографировать","Выбрать фото"},(d,w)->{datePhoto=date;recognizeAfter=recognize;if(w==0)takePhoto();else pickPhoto(date,recognize);}).show();}
     private void takePhoto(){
         if(checkSelfPermission(android.Manifest.permission.CAMERA)!=android.content.pm.PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{android.Manifest.permission.CAMERA},23);return;}
         try{ContentValues values=new ContentValues();values.put(MediaStore.Images.Media.DISPLAY_NAME,"fridge-"+UUID.randomUUID()+".jpg");values.put(MediaStore.Images.Media.MIME_TYPE,"image/jpeg");values.put(MediaStore.Images.Media.IS_PENDING,1);
@@ -56,19 +76,46 @@ public final class EditorActivity extends Activity {
     private void cleanCamera(){if(cameraUri!=null)try{getContentResolver().delete(cameraUri,null,null);}catch(Exception ignored){}cameraUri=null;}
     @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);if(request!=21&&request!=22)return;
         if(result!=RESULT_OK){if(request==22)cleanCamera();return;}Uri uri=request==22?cameraUri:data==null?null:data.getData();if(uri==null)return;
-        photoLabel.setText("Обработка фото…");save.setEnabled(false);
+        final boolean isDate=datePhoto,runAfter=recognizeAfter;recognizeAfter=false;processing=true;photoLabel.setText("Обработка фото…");busy();
         io.execute(()->{try{
-            ImageDecoder.Source source=ImageDecoder.createSource(getContentResolver(),uri);Bitmap bitmap=ImageDecoder.decodeBitmap(source,(decoder,info,s)->{int w=info.getSize().getWidth(),h=info.getSize().getHeight();float scale=Math.min(1f,800f/Math.max(w,h));decoder.setTargetSize(Math.max(1,(int)(w*scale)),Math.max(1,(int)(h*scale)));decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);});
-            ByteArrayOutputStream bytes=new ByteArrayOutputStream();int quality=80;do{bytes.reset();bitmap.compress(Bitmap.CompressFormat.JPEG,quality,bytes);quality-=10;}while(bytes.size()>170_000&&quality>=20);bitmap.recycle();
-            if(bytes.size()>170_000)throw new IOException("Выберите более простое фото");String encoded=android.util.Base64.encodeToString(bytes.toByteArray(),android.util.Base64.NO_WRAP);
-            java.nio.file.Files.write(draft().toPath(),encoded.getBytes(java.nio.charset.StandardCharsets.US_ASCII));
-            runOnUiThread(()->{photo=encoded;photoLabel.setText(getString(R.string.photo_ready,bytes.size()/1024));save.setEnabled(true);});
-        }catch(Exception e){runOnUiThread(()->{photoLabel.setText("Фото не обработано");save.setEnabled(true);Ui.error(this,e);});}finally{if(request==22)cleanCamera();}});
+            String encoded=PhotoImages.importImage(this,product,isDate,uri);
+            if(!isDate){PhotoImages.source(this,product,true).delete();java.nio.file.Files.write(draft().toPath(),encoded.getBytes(java.nio.charset.StandardCharsets.US_ASCII));}
+            runOnUiThread(()->{if(destroyed)return;processing=false;if(!isDate)photo=encoded;photoLabel.setText(isDate?"Снимок срока добавлен · основное фото сохранено":"Фото добавлено");ocrStatus.setText("Снимок готов к распознаванию");busy();if(runAfter)recognize(false);});
+        }catch(Exception e){runOnUiThread(()->{if(destroyed)return;processing=false;photoLabel.setText("Фото не обработано");busy();Ui.error(this,e);});}finally{if(request==22)cleanCamera();}});
     }
+    private void confirmCloud(){
+        if(PhotoCloudClient.endpoint(this).isEmpty()){new AlertDialog.Builder(this).setTitle("Настройте Worker").setMessage("Для облачного распознавания нужен отдельный Worker. Локальное распознавание уже доступно без настройки.").setPositiveButton("Настроить",(d,w)->startActivity(new Intent(this,PhotoSettingsActivity.class))).setNegativeButton("Закрыть",null).show();return;}
+        if(!hasImages()){choosePhoto(false,false);return;}
+        new AlertDialog.Builder(this).setTitle("Отправить снимки?").setMessage("Основное фото и добавленный снимок срока уйдут по HTTPS вашему Worker и модели Workers AI. На них могут быть личные данные — проверьте кадр. Автоматического повтора запроса нет.").setPositiveButton("Отправить",(d,w)->recognize(true)).setNegativeButton("Отмена",null).show();
+    }
+    private void recognize(boolean cloud){
+        if(recognizing||processing)return;recognizing=true;int request=++generation;String currentPhoto=photo;String endpoint=PhotoCloudClient.endpoint(this);Invitation family=store.invitation();
+        localJob=cloud?null:new OcrEngine();cloudJob=cloud?new PhotoCloudClient():null;OcrEngine local=localJob;PhotoCloudClient remote=cloudJob;
+        ocrStatus.setText(cloud?"Отправка снимков в облако…":"Подготовка распознавания…");busy();
+        recognition.execute(()->{try{
+            List<File> images=new ArrayList<>();File front=PhotoImages.source(this,product,false),date=PhotoImages.source(this,product,true);
+            if(!front.exists()&&!currentPhoto.isEmpty())java.nio.file.Files.write(front.toPath(),android.util.Base64.decode(currentPhoto,android.util.Base64.DEFAULT));
+            if(front.isFile())images.add(front);if(date.isFile())images.add(date);if(images.isEmpty())throw new IOException("Сначала добавьте снимок упаковки или срока");
+            PhotoDraft draft=cloud?remote.recognize(endpoint,family,images):local.recognize(this,images,message->runOnUiThread(()->{if(!destroyed&&generation==request)ocrStatus.setText(message);}));
+            runOnUiThread(()->{if(destroyed||generation!=request)return;recognizing=false;localJob=null;cloudJob=null;busy();ocrStatus.setText("Распознано · проверьте данные по упаковке");reviewDialog=PhotoReviewDialog.show(this,draft,this::applySuggestions);});
+        }catch(Exception e){runOnUiThread(()->{if(destroyed||generation!=request)return;recognizing=false;localJob=null;cloudJob=null;busy();ocrStatus.setText("Распознавание не завершено. Можно заполнить вручную");if(!(e instanceof java.util.concurrent.CancellationException))Ui.error(this,e);});}});
+    }
+    private void applySuggestions(Map<String,String> fields){
+        if(fields.containsKey("name"))name.setText(fields.get("name"));
+        if(fields.containsKey("quantity")){count.setText(fields.get("quantity"));List<String> options=Ui.units(fields.get("unit"));ArrayAdapter<String> adapter=new ArrayAdapter<>(this,android.R.layout.simple_spinner_item,options);adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);unit.setAdapter(adapter);unit.setSelection(options.indexOf(fields.get("unit")));}
+        if(fields.containsKey("openingDays"))openingDays.setSelection(Integer.parseInt(fields.get("openingDays"))-1);
+        if(fields.containsKey("expiry"))expiry.setText(fields.get("expiry"));
+        if(fields.containsKey("manufactured"))made.setText(fields.get("manufactured"));
+        if(fields.containsKey("shelfDays"))shelf.setText(fields.get("shelfDays"));
+        ocrStatus.setText("Данные перенесены в форму. Проверьте их и сохраните упаковку");
+    }
+    private void cancelRecognition(){++generation;if(localJob!=null)localJob.cancel();if(cloudJob!=null)cloudJob.cancel();localJob=null;cloudJob=null;recognizing=false;if(ocrStatus!=null)ocrStatus.setText("Распознавание остановлено. Поля не изменены");busy();}
     private void save(){try{
+        if(processing||recognizing)return;
         String title=name.getText().toString().trim(),u=unit.getSelectedItem().toString();long qty=Amounts.parse(count.getText().toString());int days=openingDays.getSelectedItemPosition()+1;LocalDate date=LocalDate.parse(expiry.getText().toString());
         if(title.isEmpty()||qty<(original==null?1:0))throw new IllegalArgumentException("Укажите название и положительное количество; для существующей упаковки допускается 0");
         if(Amounts.countable(u)&&qty%1000!=0)throw new IllegalArgumentException("Для штук, упаковок и порций укажите целое количество");
+        if(!made.getText().toString().trim().isEmpty()&&date.isBefore(LocalDate.parse(made.getText().toString().trim())))throw new IllegalArgumentException("Срок годности раньше даты изготовления. Проверьте даты");
         Map<String,String> fields=new HashMap<>();fields.put("name",title);fields.put("unit",u);fields.put("expiry",date.toString());fields.put("photo",photo);fields.put("openingDays",Integer.toString(days));
         if(original==null)fields.put("initialQuantity",Amounts.format(qty));
         save.setEnabled(false);io.execute(()->{try{
@@ -81,9 +128,10 @@ public final class EditorActivity extends Activity {
             }
             if(!fields.isEmpty())store.change(product,fields);
             if(original!=null){long delta=qty-original.quantityMilli;if(delta!=0)store.change(product,Map.of("delta",Amounts.format(delta)));}
-            deleteDraft();runOnUiThread(()->{setResult(RESULT_OK);finish();});
+            deleteDraft();PhotoImages.clear(this,product);runOnUiThread(()->{setResult(RESULT_OK);finish();});
         }catch(Exception e){runOnUiThread(()->{save.setEnabled(true);Ui.error(this,e);});}});
     }catch(Exception e){Ui.error(this,e);}}
-    @Override protected void onSaveInstanceState(Bundle s){super.onSaveInstanceState(s);if(name!=null){s.putString("product",product);s.putString("name",name.getText().toString());s.putString("count",count.getText().toString());s.putString("unit",unit.getSelectedItem().toString());s.putInt("openingDays",openingDays.getSelectedItemPosition());s.putBoolean("photoEmpty",photo.isEmpty());s.putString("expiry",expiry.getText().toString());s.putString("made",made.getText().toString());s.putString("shelf",shelf.getText().toString());if(cameraUri!=null)s.putString("camera",cameraUri.toString());}}
-    @Override protected void onDestroy(){io.shutdown();super.onDestroy();}
+    @Override protected void onSaveInstanceState(Bundle s){super.onSaveInstanceState(s);if(name!=null){s.putString("product",product);s.putString("name",name.getText().toString());s.putString("count",count.getText().toString());s.putString("unit",unit.getSelectedItem().toString());s.putInt("openingDays",openingDays.getSelectedItemPosition());s.putBoolean("photoEmpty",photo.isEmpty());s.putString("expiry",expiry.getText().toString());s.putString("made",made.getText().toString());s.putString("shelf",shelf.getText().toString());s.putBoolean("datePhoto",datePhoto);s.putBoolean("recognizeAfter",recognizeAfter);if(cameraUri!=null)s.putString("camera",cameraUri.toString());}}
+    @Override protected void onStop(){super.onStop();if(recognizing)cancelRecognition();if(reviewDialog!=null)reviewDialog.dismiss();}
+    @Override protected void onDestroy(){destroyed=true;cancelRecognition();recognition.shutdown();if(isFinishing())io.execute(()->{deleteDraft();PhotoImages.clear(this,product);cleanCamera();});io.shutdown();super.onDestroy();}
 }

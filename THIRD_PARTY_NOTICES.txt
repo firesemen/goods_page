@@ -10,6 +10,27 @@ https://github.com/gradle/gradle
 
 No application code was copied from Grocy or KitchenOwl.
 
+Offline OCR, added in 0.3.0:
+
+Tesseract4Android 4.9.0 (standard), Tesseract 5.5.1 — Apache-2.0.
+https://github.com/adaptech-cz/Tesseract4Android
+https://github.com/tesseract-ocr/tesseract
+Russian and English tessdata_fast models — Apache-2.0.
+https://github.com/tesseract-ocr/tessdata_fast
+Leptonica 1.85.0 — BSD-2-Clause.
+https://github.com/DanBloomberg/leptonica
+libpng 1.6.48 — PNG Reference Library License v2.
+https://github.com/pnggroup/libpng
+libjpeg 9f — Independent JPEG Group license.
+This software is based in part on the work of the Independent JPEG Group.
+https://ijg.org/
+
+The native library was built from unmodified upstream sources.
+Versions, hashes and build provenance: app/libs/README.md.
+Full upstream license/copyright texts are in app/src/main/assets/licenses
+(and in the APK assets/licenses directory).
+
+
 
                                  Apache License
                            Version 2.0, January 2004

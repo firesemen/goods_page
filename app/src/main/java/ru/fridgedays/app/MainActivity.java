@@ -156,6 +156,7 @@ public final class MainActivity extends Activity {
     }catch(Exception e){Ui.error(this,e);}}
     private void join(String link){try{Invitation next=Invitation.parse(link);stopNearby();store.join(next);SyncJob.schedule(this,store);status="Семья подключена · дождитесь обмена данными";tab="fridge";render();startNearby();if(!next.relay.isEmpty())syncCloud();}catch(Exception e){startNearby();Ui.error(this,e);}}
     private void settings(){
+        body.addView(Ui.button(this,"Распознавание по фото",()->startActivity(new Intent(this,PhotoSettingsActivity.class))));
         body.addView(Ui.text(this,"Хранение и обмен",21,Ui.INK));statusView=Ui.text(this,status,14,Ui.MUTED);statusView.setId(R.id.storage_status);body.addView(statusView);Ui.space(this,body,12);
         body.addView(Ui.text(this,"Утренняя сводка",21,Ui.INK));body.addView(Ui.text(this,"Сегодня, завтра и просроченные продукты. Работает по локальному списку без интернета. Android может задержать доставку в режиме экономии энергии.",14,Ui.MUTED));
         var prefs=getSharedPreferences("settings",0);EditText hour=Ui.field(this,"Час уведомления (0–23)",Integer.toString(prefs.getInt("hour",9)),InputType.TYPE_CLASS_NUMBER,body);
@@ -166,7 +167,7 @@ public final class MainActivity extends Activity {
         body.addView(Ui.button(this,"Проверить сводку сейчас",()->{try{ReminderReceiver.send(this,store,true);}catch(Exception e){Ui.error(this,e);}}));
         Ui.space(this,body,18);body.addView(Ui.text(this,"Резервная копия",21,Ui.INK));body.addView(Ui.text(this,"Фото, сроки и ключ семьи шифруются паролем. Без пароля восстановить копию нельзя. Она не заменяет автоматический обмен между телефонами.",14,Ui.MUTED));
         body.addView(Ui.button(this,"Сохранить зашифрованную копию",()->password(false)));body.addView(Ui.button(this,"Восстановить копию",()->password(true)));
-        body.addView(Ui.text(this,"Версия 0.2.1 · Android 12+ · хранение на телефоне",12,Ui.MUTED));
+        body.addView(Ui.text(this,"Версия 0.3.0 · Android 12+ · хранение на телефоне",12,Ui.MUTED));
     }
     private void password(boolean importing){EditText input=new EditText(this);input.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);input.setHint("Не менее 12 символов");new AlertDialog.Builder(this).setTitle(importing?"Пароль копии":"Задайте пароль копии").setView(input).setPositiveButton("Продолжить",(d,w)->{
         String p=input.getText().toString();if(p.length()<12){Ui.error(this,new IllegalArgumentException("Пароль должен содержать минимум 12 символов"));return;}if(backupPassword!=null)Arrays.fill(backupPassword,'\0');backupPassword=p.toCharArray();pendingImport=importing;

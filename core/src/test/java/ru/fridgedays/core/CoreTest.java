@@ -82,5 +82,6 @@ public final class CoreTest {
         colours.change(a,cp,Map.of("expiry",date.minusDays(2).toString()));check(first(colours).expiryState(date)==Product.ExpiryState.RED,"red at exactly 2 expired days");
         colours.change(a,cp,Map.of("expiry",date.minusDays(3).toString()));check(first(colours).expiryState(date)==Product.ExpiryState.BLACK,"black beyond 2 expired days");
         System.out.println("PASS: "+checks+" checks (dates, convergence, duplicate delivery, deletion, codecs, encryption, backups)");
+        PhotoParserTest.main(args);
     }
 }

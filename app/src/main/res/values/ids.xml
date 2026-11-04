@@ -1,4 +1,6 @@
 <resources>
+    <item name="ocr_endpoint" type="id" /><item name="ocr_local" type="id" /><item name="ocr_cloud" type="id" /><item name="ocr_status" type="id" /><item name="ocr_cancel" type="id" />
+    <item name="manufactured_input" type="id" /><item name="shelf_input" type="id" />
     <item name="page_scroll" type="id" />
     <item name="toolbar_settings" type="id" /><item name="family_label" type="id" /><item name="bottom_nav" type="id" />
     <item name="filter_all" type="id" /><item name="filter_soon" type="id" /><item name="filter_expired" type="id" /><item name="filter_empty" type="id" /><item name="add_product" type="id" />

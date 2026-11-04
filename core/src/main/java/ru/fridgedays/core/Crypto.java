@@ -31,6 +31,9 @@ public final class Crypto {
     public static String capability(byte[] key,String room)throws GeneralSecurityException{
         Mac mac=Mac.getInstance("HmacSHA256");mac.init(new SecretKeySpec(key,"HmacSHA256"));return encode(mac.doFinal(("relay-v1:"+room).getBytes(StandardCharsets.UTF_8)));
     }
+    public static String photoCapability(byte[] key,String room)throws GeneralSecurityException{
+        Mac mac=Mac.getInstance("HmacSHA256");mac.init(new SecretKeySpec(key,"HmacSHA256"));return encode(mac.doFinal(("photo-v1:"+room).getBytes(StandardCharsets.UTF_8)));
+    }
     public static String passwordSeal(char[] password,byte[] data)throws GeneralSecurityException{
         byte[] salt=new byte[16];RANDOM.nextBytes(salt);byte[] derived=derive(password,salt);
         try{return "FDB1."+encode(salt)+"."+seal(derived,"backup-v1",data);}finally{Arrays.fill(derived,(byte)0);}

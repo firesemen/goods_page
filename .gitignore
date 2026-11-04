@@ -8,3 +8,5 @@ local.properties
 .tools/
 relay/.wrangler/
 relay/node_modules/
+recognizer/.wrangler/
+recognizer/node_modules/
