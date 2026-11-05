@@ -1,4 +1,5 @@
 <resources>
+    <string name="cloud_recognition_in_progress">Распознавание через Cloudflare…</string>
     <string name="recognition_field">%1$s: %2$s%3$s</string>
     <string name="consumption_summary">Списать: %1$s %2$s · Останется: %3$s %2$s</string>
 </resources>

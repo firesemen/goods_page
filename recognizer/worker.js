@@ -1,6 +1,6 @@
 // Standalone module: paste this entire file into a Cloudflare Worker.
 const UUID='[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
-const ROUTE=new RegExp(`^/v1/rooms/(${UUID}_${UUID})/recognize$`);
+const ROUTE=new RegExp(`^/v1/rooms/(${UUID}_${UUID})/(recognize|status)$`);
 const KEYS=['name','quantity','unit','manufactured','expiry','shelfDays','openingDays'];
 const UNITS=['шт','г','кг','мл','л','упак','порц','бут','банка'];
 const DEFAULT_MODEL='@cf/google/gemma-3-12b-it';
@@ -50,13 +50,20 @@ export default {
   async fetch(request,env){
     try{
       const url=new URL(request.url),match=url.pathname.match(ROUTE);
-      if(!match)return json({error:'not_found'},404);
       if(url.protocol!=='https:')return json({error:'https_required'},426);
-      if(request.method!=='POST')return json({error:'method_not_allowed'},405);
+      if(url.pathname==='/'&&request.method==='GET')return json({service:'fridge-photo',version:2,message:'Worker is running. Configure AI, DB and ROOMS, then check the connection in the Android app.'});
+      if(!match)return json({error:'not_found'},404);
+      if(request.method!==(match[2]==='status'?'GET':'POST'))return json({error:'method_not_allowed'},405);
       let rooms;try{rooms=JSON.parse(env.ROOMS||'{}');}catch{return json({error:'recognizer_not_configured'},503);}
       const header=request.headers.get('Authorization')||'';
       if(!/^Bearer [A-Za-z0-9_-]{43}$/.test(header)||!equal(await hash(header.slice(7)),rooms[match[1]]))return json({error:'unauthorized'},401);
       if(!env.AI||!env.DB)return json({error:'recognizer_not_configured'},503);
+      const day=new Date().toISOString().slice(0,10),configured=Number(env.DAILY_LIMIT||20);
+      if(!Number.isInteger(configured)||configured<1||configured>100)return json({error:'invalid_daily_limit'},503);
+      if(match[2]==='status'){
+        let usage;try{usage=await env.DB.prepare('SELECT count FROM recognition_usage WHERE room=? AND day=?').bind(match[1],day).first();}catch{return json({error:'database_not_ready'},503);}
+        return json({service:'fridge-photo',version:2,ready:true,dailyLimit:configured,remaining:Math.max(0,configured-(usage?.count||0)),utcDay:day});
+      }
       const data=await readBody(request);
       if(!data||!Array.isArray(data.images)||data.images.length<1||data.images.length>2)return json({error:'invalid_images'},400);
       const images=[];for(const image of data.images){
@@ -65,9 +72,7 @@ export default {
         if(bytes.charCodeAt(0)!==255||bytes.charCodeAt(1)!==216||bytes.charCodeAt(2)!==255)return json({error:'jpeg_required'},400);
         images.push({type:'image_url',image_url:{url:'data:image/jpeg;base64,'+image}});
       }
-      const day=new Date().toISOString().slice(0,10),configured=Number(env.DAILY_LIMIT||20);
-      if(!Number.isInteger(configured)||configured<1||configured>100)return json({error:'invalid_daily_limit'},503);
-      const slot=await env.DB.prepare('INSERT INTO recognition_usage(room,day,count) VALUES (?,?,1) ON CONFLICT(room,day) DO UPDATE SET count=count+1 WHERE count<? RETURNING count').bind(match[1],day,configured).first();
+      let slot;try{slot=await env.DB.prepare('INSERT INTO recognition_usage(room,day,count) VALUES (?,?,1) ON CONFLICT(room,day) DO UPDATE SET count=count+1 WHERE count<? RETURNING count').bind(match[1],day,configured).first();}catch{return json({error:'database_not_ready'},503);}
       if(!slot)return json({error:'daily_limit'},429);
       const response=await env.AI.run(env.VISION_MODEL||DEFAULT_MODEL,{messages:[{role:'user',content:[{type:'text',text:PROMPT},...images]}],guided_json:OUTPUT_SCHEMA,max_tokens:1600,temperature:0,stream:false});
       if(typeof response?.response!=='string'||response.response.length>30000)throw fail('invalid_model_response',502);

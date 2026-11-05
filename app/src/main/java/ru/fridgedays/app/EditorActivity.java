@@ -21,7 +21,7 @@ public final class EditorActivity extends Activity {
     private final java.util.concurrent.ExecutorService recognition=java.util.concurrent.Executors.newSingleThreadExecutor();
     private final List<Button> photoButtons=new ArrayList<>();
     private TextView ocrStatus;private Button cancelRecognition;private boolean datePhoto,recognizeAfter,processing,recognizing,destroyed;private int generation;
-    private OcrEngine localJob;private PhotoCloudClient cloudJob;private AlertDialog reviewDialog;
+    private PhotoCloudClient cloudJob;private AlertDialog reviewDialog;
     @Override public void onCreate(Bundle state){super.onCreate(state);
         try{store=Store.get(this);product=state==null?getIntent().getStringExtra("product"):state.getString("product");if(product!=null)for(Product p:store.products())if(p.id.equals(product))original=p;if(product==null)product=UUID.randomUUID().toString();
             if(original!=null)photo=original.photo;
@@ -46,11 +46,10 @@ public final class EditorActivity extends Activity {
             addPhotoButton(form,"Убрать фото",()->{photo="";photoLabel.setText("Фото не добавлено");deleteDraft();PhotoImages.clear(this,product);ocrStatus.setText("Снимки удалены. Можно заполнить вручную");});
             Ui.space(this,form,12);form.addView(Ui.text(this,"Заполнить по фото",21,Ui.INK));
             form.addView(Ui.text(this,"Снимите название и количество. Для даты можно добавить отдельный крупный снимок. После распознавания проверьте поля; карточка сохранится только по кнопке внизу.",14,Ui.MUTED));
-            addPhotoButton(form,"Распознать на телефоне",()->{if(!hasImages())choosePhoto(false,true);else recognize(false);}).setId(R.id.ocr_local);
-            addPhotoButton(form,"Снять срок крупно",()->{datePhoto=true;recognizeAfter=true;takePhoto();});
-            addPhotoButton(form,"Выбрать снимок срока",()->pickPhoto(true,true));
-            addPhotoButton(form,"Отправить фото в облако",this::confirmCloud).setId(R.id.ocr_cloud);
-            ocrStatus=Ui.text(this,"На телефоне · без интернета. Облако — только по отдельной кнопке",13,Ui.MUTED);ocrStatus.setId(R.id.ocr_status);form.addView(ocrStatus);
+            addPhotoButton(form,"Снять срок крупно",()->{datePhoto=true;recognizeAfter=false;takePhoto();});
+            addPhotoButton(form,"Выбрать снимок срока",()->pickPhoto(true,false));
+            addPhotoButton(form,"Распознать через Cloudflare",this::confirmCloud).setId(R.id.ocr_cloud);
+            ocrStatus=Ui.text(this,"Распознавание через Cloudflare · нужен интернет. Снимки отправляются только после подтверждения",13,Ui.MUTED);ocrStatus.setId(R.id.ocr_status);form.addView(ocrStatus);
             cancelRecognition=Ui.button(this,"Остановить распознавание",this::cancelRecognition);cancelRecognition.setId(R.id.ocr_cancel);cancelRecognition.setVisibility(View.GONE);form.addView(cancelRecognition);
             save=Ui.button(this,"Сохранить упаковку",this::save);form.addView(save);
             if(state!=null){name.setText(state.getString("name"));count.setText(state.getString("count"));unit.setSelection(Math.max(0,units.indexOf(state.getString("unit",currentUnit))));openingDays.setSelection(state.getInt("openingDays",2));expiry.setText(state.getString("expiry"));made.setText(state.getString("made"));shelf.setText(state.getString("shelf"));String camera=state.getString("camera");cameraUri=camera==null?null:Uri.parse(camera);
@@ -80,25 +79,25 @@ public final class EditorActivity extends Activity {
         io.execute(()->{try{
             String encoded=PhotoImages.importImage(this,product,isDate,uri);
             if(!isDate){PhotoImages.source(this,product,true).delete();java.nio.file.Files.write(draft().toPath(),encoded.getBytes(java.nio.charset.StandardCharsets.US_ASCII));}
-            runOnUiThread(()->{if(destroyed)return;processing=false;if(!isDate)photo=encoded;photoLabel.setText(isDate?"Снимок срока добавлен · основное фото сохранено":"Фото добавлено");ocrStatus.setText("Снимок готов к распознаванию");busy();if(runAfter)recognize(false);});
+            runOnUiThread(()->{if(destroyed)return;processing=false;if(!isDate)photo=encoded;photoLabel.setText(isDate?"Снимок срока добавлен · основное фото сохранено":"Фото добавлено");ocrStatus.setText("Снимок готов к распознаванию");busy();if(runAfter)confirmCloud();});
         }catch(Exception e){runOnUiThread(()->{if(destroyed)return;processing=false;photoLabel.setText("Фото не обработано");busy();Ui.error(this,e);});}finally{if(request==22)cleanCamera();}});
     }
     private void confirmCloud(){
-        if(PhotoCloudClient.endpoint(this).isEmpty()){new AlertDialog.Builder(this).setTitle("Настройте Worker").setMessage("Для облачного распознавания нужен отдельный Worker. Локальное распознавание уже доступно без настройки.").setPositiveButton("Настроить",(d,w)->startActivity(new Intent(this,PhotoSettingsActivity.class))).setNegativeButton("Закрыть",null).show();return;}
-        if(!hasImages()){choosePhoto(false,false);return;}
-        new AlertDialog.Builder(this).setTitle("Отправить снимки?").setMessage("Основное фото и добавленный снимок срока уйдут по HTTPS вашему Worker и модели Workers AI. На них могут быть личные данные — проверьте кадр. Автоматического повтора запроса нет.").setPositiveButton("Отправить",(d,w)->recognize(true)).setNegativeButton("Отмена",null).show();
+        if(PhotoCloudClient.endpoint(this).isEmpty()){new AlertDialog.Builder(this).setTitle("Настройте Cloudflare").setMessage("Сначала укажите адрес Worker в настройках распознавания. Фото останутся на телефоне, пока вы не подтвердите отправку. Карточку можно заполнить вручную.").setPositiveButton("Настроить",(d,w)->startActivity(new Intent(this,PhotoSettingsActivity.class))).setNegativeButton("Закрыть",null).show();return;}
+        if(!hasImages()){choosePhoto(false,true);return;}
+        new AlertDialog.Builder(this).setTitle("Отправить снимки?").setMessage("Основное фото и добавленный снимок срока уйдут по HTTPS вашему Worker и модели Workers AI. На них могут быть личные данные — проверьте кадр. Автоматического повтора запроса нет.").setPositiveButton("Отправить",(d,w)->recognize()).setNegativeButton("Отмена",null).show();
     }
-    private void recognize(boolean cloud){
+    private void recognize(){
         if(recognizing||processing)return;recognizing=true;int request=++generation;String currentPhoto=photo;String endpoint=PhotoCloudClient.endpoint(this);Invitation family=store.invitation();
-        localJob=cloud?null:new OcrEngine();cloudJob=cloud?new PhotoCloudClient():null;OcrEngine local=localJob;PhotoCloudClient remote=cloudJob;
-        ocrStatus.setText(cloud?"Отправка снимков в облако…":"Подготовка распознавания…");busy();
+        cloudJob=new PhotoCloudClient();PhotoCloudClient remote=cloudJob;
+        ocrStatus.setText(R.string.cloud_recognition_in_progress);busy();
         recognition.execute(()->{try{
             List<File> images=new ArrayList<>();File front=PhotoImages.source(this,product,false),date=PhotoImages.source(this,product,true);
             if(!front.exists()&&!currentPhoto.isEmpty())java.nio.file.Files.write(front.toPath(),android.util.Base64.decode(currentPhoto,android.util.Base64.DEFAULT));
             if(front.isFile())images.add(front);if(date.isFile())images.add(date);if(images.isEmpty())throw new IOException("Сначала добавьте снимок упаковки или срока");
-            PhotoDraft draft=cloud?remote.recognize(endpoint,family,images):local.recognize(this,images,message->runOnUiThread(()->{if(!destroyed&&generation==request)ocrStatus.setText(message);}));
-            runOnUiThread(()->{if(destroyed||generation!=request)return;recognizing=false;localJob=null;cloudJob=null;busy();ocrStatus.setText("Распознано · проверьте данные по упаковке");reviewDialog=PhotoReviewDialog.show(this,draft,this::applySuggestions);});
-        }catch(Exception e){runOnUiThread(()->{if(destroyed||generation!=request)return;recognizing=false;localJob=null;cloudJob=null;busy();ocrStatus.setText("Распознавание не завершено. Можно заполнить вручную");if(!(e instanceof java.util.concurrent.CancellationException))Ui.error(this,e);});}});
+            PhotoDraft draft=remote.recognize(endpoint,family,images);
+            runOnUiThread(()->{if(destroyed||generation!=request)return;recognizing=false;cloudJob=null;busy();ocrStatus.setText("Распознано · проверьте данные по упаковке");reviewDialog=PhotoReviewDialog.show(this,draft,this::applySuggestions);});
+        }catch(Exception e){runOnUiThread(()->{if(destroyed||generation!=request)return;recognizing=false;cloudJob=null;busy();ocrStatus.setText("Распознавание не завершено. Можно заполнить вручную");if(!(e instanceof java.util.concurrent.CancellationException))Ui.error(this,e);});}});
     }
     private void applySuggestions(Map<String,String> fields){
         if(fields.containsKey("name"))name.setText(fields.get("name"));
@@ -109,7 +108,7 @@ public final class EditorActivity extends Activity {
         if(fields.containsKey("shelfDays"))shelf.setText(fields.get("shelfDays"));
         ocrStatus.setText("Данные перенесены в форму. Проверьте их и сохраните упаковку");
     }
-    private void cancelRecognition(){++generation;if(localJob!=null)localJob.cancel();if(cloudJob!=null)cloudJob.cancel();localJob=null;cloudJob=null;recognizing=false;if(ocrStatus!=null)ocrStatus.setText("Распознавание остановлено. Поля не изменены");busy();}
+    private void cancelRecognition(){++generation;if(cloudJob!=null)cloudJob.cancel();cloudJob=null;recognizing=false;if(ocrStatus!=null)ocrStatus.setText("Распознавание остановлено. Поля не изменены");busy();}
     private void save(){try{
         if(processing||recognizing)return;
         String title=name.getText().toString().trim(),u=unit.getSelectedItem().toString();long qty=Amounts.parse(count.getText().toString());int days=openingDays.getSelectedItemPosition()+1;LocalDate date=LocalDate.parse(expiry.getText().toString());

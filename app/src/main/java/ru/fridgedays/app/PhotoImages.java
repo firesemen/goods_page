@@ -9,6 +9,12 @@ import java.nio.file.Files;
 
 /** High-resolution inputs stay in the private cache, separate from the small card image. */
 final class PhotoImages {
+    /** Delete only the dictionaries installed by 0.3.0; never touch inventory or its keys. */
+    static void clearLegacyModels(Context c){
+        File root=new File(c.getFilesDir(),"ocr"),data=new File(root,"tessdata");
+        for(String language:new String[]{"rus","eng"})for(String suffix:new String[]{".traineddata",".traineddata.tmp"})new File(data,language+suffix).delete();
+        data.delete();root.delete();
+    }
     static File source(Context c,String product,boolean date){return new File(c.getCacheDir(),"ocr-"+product+(date?"-date.jpg":"-front.jpg"));}
     static Bitmap decode(Context c,Uri uri,int edge)throws IOException{
         return ImageDecoder.decodeBitmap(ImageDecoder.createSource(c.getContentResolver(),uri),(d,info,s)->{

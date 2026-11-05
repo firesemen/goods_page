@@ -53,14 +53,20 @@ public final class SmokeInstrumentation extends Instrumentation {
         byte[] photo=android.util.Base64.decode(yogurt.photo,android.util.Base64.DEFAULT);Bitmap decoded=BitmapFactory.decodeByteArray(photo,0,photo.length);check(Math.max(decoded.getWidth(),decoded.getHeight())<=800&&photo.length<=170_000,"photo dimensions and size bounded");decoded.recycle();context.getContentResolver().delete(uri,null,null);
 
         MainActivity main=(MainActivity)startActivitySync(new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));waitForIdleSync();until(()->{final boolean[] found={false};runOnMainSync(()->found[0]=views(main).stream().anyMatch(v->v instanceof TextView t&&t.getText().toString().equals(yogurtName)));return found[0];});check(true,"main screen renders saved card");
-        ReminderReceiver.schedule(context);ReminderReceiver.send(context,store,true);check(Arrays.stream(context.getSystemService(NotificationManager.class).getActiveNotifications()).anyMatch(n->n.getId()==19),"local notification posted");
+        NotificationManager notifications=context.getSystemService(NotificationManager.class);notifications.cancel(19);
+        until(()->Arrays.stream(notifications.getActiveNotifications()).noneMatch(n->n.getId()==19));
+        ReminderReceiver.schedule(context);ReminderReceiver.send(context,store,true);
+        // notify() queues work in system_server; verify its actual delivery after that queue runs.
+        until(()->Arrays.stream(notifications.getActiveNotifications()).anyMatch(n->n.getId()==19));
+        check(Arrays.stream(notifications.getActiveNotifications()).anyMatch(n->n.getId()==19),"local notification posted");
 
         // Stop Activity's listener, then exercise the real socket server and encryption framing.
         runOnMainSync(main::finish);waitForIdleSync();try(NearbySync nearby=new NearbySync(context,store,s->{})){
             java.lang.reflect.Field field=NearbySync.class.getDeclaredField("server");field.setAccessible(true);ServerSocket server=(ServerSocket)field.get(nearby);
             try(Socket socket=new Socket("127.0.0.1",server.getLocalPort())){socket.setSoTimeout(10_000);var out=new DataOutputStream(socket.getOutputStream());var in=new DataInputStream(socket.getInputStream());
                 write(out,invitation,"manifest",Map.of());Map<String,String> response=read(in,invitation,"response");check(response.keySet().equals(store.packets().keySet())&&response.containsKey(remote.id),"real LAN server returns missing encrypted operation IDs");
-                Operation lan=new Operation(UUID.randomUUID().toString(),UUID.randomUUID().toString(),id,1000,Map.of("name","Проверка LAN"));String payload=Crypto.seal(invitation.key,invitation.context(lan.id),Codec.operation(lan));write(out,invitation,"push",Map.of(lan.id,payload));read(in,invitation,"ack");check(product(store,id).name.equals("Проверка LAN"),"real LAN socket applies authenticated remote operation");
+                Ledger lanReplica=new Ledger();for(var entry:store.packets().entrySet())lanReplica.merge(List.of(Codec.operation(Crypto.open(invitation.key,invitation.context(entry.getKey()),entry.getValue()))));
+                Operation lan=lanReplica.change(UUID.randomUUID().toString(),id,Map.of("name","Проверка LAN"));String payload=Crypto.seal(invitation.key,invitation.context(lan.id),Codec.operation(lan));write(out,invitation,"push",Map.of(lan.id,payload));read(in,invitation,"ack");check(product(store,id).name.equals("Проверка LAN"),"real LAN socket applies authenticated remote operation");
             }
         }
         store.change(id,Map.of("deleted","true"));store.change(yogurt.id,Map.of("deleted","true"));

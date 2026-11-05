@@ -20,7 +20,7 @@ public final class PhotoDraft {
         value=value.trim();if(value.length()>200)throw new IllegalArgumentException("Слишком длинное распознанное поле");
         switch(key){
             case "quantity"->{long n=Amounts.parse(value);if(n<=0)throw new IllegalArgumentException("Некорректное количество");value=Amounts.format(n);}
-            case "unit"->{value=LabelParser.unit(value);if(value==null)throw new IllegalArgumentException("Неизвестная единица");}
+            case "unit"->{if(!Set.of("шт","г","кг","мл","л","упак","порц","бут","банка").contains(value))throw new IllegalArgumentException("Неизвестная единица");}
             case "manufactured","expiry"->{try{value=LocalDate.parse(value).toString();}catch(java.time.DateTimeException e){throw new IllegalArgumentException("Некорректная дата",e);}}
             case "openingDays"->{int n=Integer.parseInt(value);if(n<1||n>365)throw new IllegalArgumentException("Некорректный срок после открытия");}
             case "shelfDays"->{int n=Integer.parseInt(value);if(n<1||n>100000)throw new IllegalArgumentException("Некорректный срок хранения");}

@@ -15,8 +15,12 @@
     "bytes": 33747194,
     "sha256": "467ef357e25c8fcd2aa1492614dfa895b1210b4e85c3f38d9e817e6a7f43d7e5"
   },
+  "fridge-days-0.4.0-debug.apk": {
+    "bytes": 774627,
+    "sha256": "c712d8196bcf025d2ec9c721e779154dc311eed6a4a337246b94740f2f3b9e37"
+  },
   "fridge-days-source.zip": {
-    "bytes": 16744002,
-    "sha256": "66193b3f35f7ee62a2f213770c89e297aad6eb551ea997206cd80b857c3395f2"
+    "bytes": 371970,
+    "sha256": "05d97ace90195a081781ceed8f5fec3101131e6a0406e192a9712c49792ae712"
   }
 }

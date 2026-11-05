@@ -59,3 +59,20 @@ test('previous-day counters do not prevent a new day and no photos are stored in
  db.prepare('INSERT INTO recognition_usage VALUES (?,?,?)').run(room,'2000-01-01',20);
  const response=await worker.fetch(req(),env);assert.equal(response.status,200);const rows=db.prepare('SELECT * FROM recognition_usage').all();assert.equal(rows.length,2);assert.ok(rows.every(r=>!JSON.stringify(r).includes(photo)));assert.equal(rows.find(r=>r.day!=='2000-01-01').count,1);
 });
+
+test('public landing page identifies Worker without exposing family configuration',async()=>{
+ const response=await worker.fetch(new Request('https://ocr.test/'),env);assert.equal(response.status,200);const page=await response.json();assert.equal(page.service,'fridge-photo');assert.equal(page.version,2);assert.ok(!JSON.stringify(page).includes(room));assert.ok(!JSON.stringify(page).includes(token));assert.equal(calls,0);assert.equal(count(),0);
+});
+function statusRequest(auth=token){return new Request(`https://ocr.test/v1/rooms/${room}/status`,{headers:{Authorization:`Bearer ${auth}`}});}
+test('authenticated connection check verifies D1 without calling AI or spending quota',async()=>{
+ let response=await worker.fetch(statusRequest(),env);assert.equal(response.status,200);let status=await response.json();assert.equal(status.ready,true);assert.equal(status.remaining,20);assert.equal(status.dailyLimit,20);assert.equal(calls,0);assert.equal(count(),0);
+ await worker.fetch(req(),env);response=await worker.fetch(statusRequest(),env);status=await response.json();assert.equal(status.remaining,19);assert.equal(count(),1);assert.equal(calls,1);
+ assert.equal((await worker.fetch(statusRequest(randomBytes(32).toString('base64url')),env)).status,401);
+});
+test('connection check diagnoses missing SQL table and bindings without exposing SQL errors',async()=>{
+ assert.equal((await worker.fetch(statusRequest(),{...env,AI:null})).status,503);db.exec('DROP TABLE recognition_usage');
+ for(const request of [statusRequest(),req()]){const response=await worker.fetch(request,env);assert.equal(response.status,503);assert.deepEqual(await response.json(),{error:'database_not_ready'});}assert.equal(calls,0);
+});
+test('exhausted quota still permits connection check, never negative remaining',async()=>{
+ env.DAILY_LIMIT='1';await worker.fetch(req(),env);assert.equal((await worker.fetch(req(),env)).status,429);const status=await (await worker.fetch(statusRequest(),env)).json();assert.equal(status.remaining,0);assert.equal(calls,1);assert.equal(count(),1);
+});

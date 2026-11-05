@@ -25,6 +25,7 @@ public final class Store implements SyncReplica {
     synchronized boolean beginCloud(){if(cloudActive)return false;cloudActive=true;return true;}
     synchronized void endCloud(){cloudActive=false;}
     private Store(Context c)throws Exception{
+        PhotoImages.clearLegacyModels(c);
         prefs=c.getSharedPreferences("private-config",Context.MODE_PRIVATE);
         KeyStore ks=KeyStore.getInstance("AndroidKeyStore");ks.load(null);
         if(!ks.containsAlias("fridge-config-v1")){
