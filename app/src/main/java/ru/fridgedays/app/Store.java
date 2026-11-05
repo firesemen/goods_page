@@ -55,6 +55,19 @@ public final class Store implements SyncReplica {
     public synchronized Invitation invitation(){return invite;}
     public String actorId(){return actor;}
     public synchronized List<Product> products(){return ledger.products();}
+    public synchronized Product byBarcode(String code){
+        String canonical=Barcode.canonical(code);Product latest=null;long newest=-1;Map<String,Long> clocks=new HashMap<>();for(Operation op:ledger.operations())clocks.merge(op.product,op.clock,Math::max);
+        for(Product p:ledger.products())if(p.barcode.equals(canonical)){
+            long clock=clocks.getOrDefault(p.id,0L);
+            if(clock>newest){latest=p;newest=clock;}
+        }return latest;
+    }
+    public synchronized PhotoDraft barcodeDraft(Product product){
+        PhotoDraft draft=Barcode.familyDraft(product);String originalUnit=null;
+        for(Operation op:ledger.operations())if(op.product.equals(product.id)&&op.fields.containsKey("initialQuantity"))originalUnit=op.fields.get("unit");
+        if(originalUnit==null||!originalUnit.replace(".","").equals(product.unit.replace(".",""))){draft.fields.remove("quantity");draft.fields.remove("unit");draft.note("Единица прежней упаковки менялась или неизвестна. Количество укажите заново");}
+        return draft;
+    }
     public synchronized int operationCount(){return ledger.size();}
     public synchronized Map<String,String> packets(){
         Map<String,String> result=new TreeMap<>();

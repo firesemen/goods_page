@@ -5,15 +5,17 @@ import java.time.temporal.ChronoUnit;
 import java.util.Map;
 
 public final class Product {
-    public final String id, name, unit, photo;
+    public final String id, name, unit, photo, barcode;
     public final double quantity;
-    public final long quantityMilli;
+    public final long quantityMilli,initialQuantityMilli;
     public final int openingDays;
     public enum ExpiryState { GREEN, YELLOW, RED, BLACK }
     public final LocalDate printedExpiry, opened, expiry;
     public final boolean deleted;
     Product(String id, Map<String,String> f, long delta) {
         this.id=id; name=f.getOrDefault("name", "Без названия"); unit=f.getOrDefault("unit", "шт.");
+        String code=f.getOrDefault("barcode", "");barcode=code.isEmpty()?"":Barcode.canonical(code);
+        initialQuantityMilli=Amounts.parse(f.getOrDefault("initialQuantity","1"));
         quantityMilli=Math.max(0,Math.min(Amounts.MAX_MILLI,Amounts.parse(f.getOrDefault("initialQuantity","1"))+delta));
         quantity=quantityMilli/1000d;
         openingDays=Integer.parseInt(f.getOrDefault("openingDays","3"));

@@ -43,7 +43,7 @@ public final class WifiInstrumentation extends Instrumentation {
             Invitation invitation=Invitation.create();Replica a=new Replica(invitation),b=new Replica(Invitation.parse(invitation.link())),other=new Replica(Invitation.create());
             List<String> leftStatus=new CopyOnWriteArrayList<>(),rightStatus=new CopyOnWriteArrayList<>();
             String sausages=UUID.randomUUID().toString(),yogurt=UUID.randomUUID().toString();
-            a.change(sausages,Map.of("name","Сосиски","initialQuantity","3","unit","шт.","expiry",LocalDate.now().plusDays(10).toString()));
+            a.change(sausages,Map.of("barcode",Barcode.canonical("4601234567893"),"name","Сосиски","initialQuantity","3","unit","шт.","expiry",LocalDate.now().plusDays(10).toString()));
             b.change(yogurt,Map.of("name","Йогурт","initialQuantity","1.5","unit","л","expiry",LocalDate.now().plusDays(15).toString()));
             // More than 20 events and more than one photo-size transfer batch, in both directions.
             String photo=java.util.Base64.getEncoder().encodeToString(new byte[170_000]);
@@ -53,6 +53,7 @@ public final class WifiInstrumentation extends Instrumentation {
             progress("Waiting for Android NSD discovery and initial bidirectional exchange");
             until(()->a.packets().size()==32&&b.packets().size()==32,"NSD did not discover and synchronize both replicas");
             check(a.packets().equals(b.packets()),"both independent journals converge over real sockets");
+            check(product(b,sausages).barcode.equals(Barcode.canonical("4601234567893")),"barcode metadata reaches the other family replica");
             check(product(b,sausages).quantity==3&&product(a,yogurt).photo.equals(photo),"product and photo bytes delivered in both directions");
             until(()->!leftStatus.isEmpty()&&!rightStatus.isEmpty(),"Missing peer exchange completion status");
             check(leftStatus.stream().anyMatch(s->s.startsWith("Синхронизировано"))&&rightStatus.stream().anyMatch(s->s.startsWith("Синхронизировано")),"successful exchange reported by both participants");

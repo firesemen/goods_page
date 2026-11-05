@@ -8,7 +8,7 @@ public final class Operation {
     public final String id, actor, product;
     public final long clock;
     public final Map<String, String> fields;
-    private static final Set<String> ALLOWED = Set.of("name", "initialQuantity", "unit", "expiry", "manufactured", "shelfDays", "opened", "openingDays", "photo", "deleted", "delta");
+    private static final Set<String> ALLOWED = Set.of("barcode", "name", "initialQuantity", "unit", "expiry", "manufactured", "shelfDays", "opened", "openingDays", "photo", "deleted", "delta");
     public Operation(String id, String actor, String product, long clock, Map<String, String> fields) {
         UUID.fromString(id); UUID.fromString(actor); UUID.fromString(product);
         if (clock < 1 || clock > 9_000_000_000_000_000L || fields.isEmpty() || fields.size() > 10) throw new IllegalArgumentException("Некорректная операция");
@@ -16,6 +16,7 @@ public final class Operation {
             String k = entry.getKey(), v = entry.getValue();
             if (!ALLOWED.contains(k) || v == null || v.length() > (k.equals("photo") ? 240_000 : 200)) throw new IllegalArgumentException("Некорректное поле");
             switch (k) {
+                case "barcode" -> {if(!v.isEmpty())Barcode.canonical(v);}
                 case "expiry", "manufactured", "opened" -> { if (!v.isEmpty()) LocalDate.parse(v); }
                 case "initialQuantity" -> { if(Amounts.parse(v)<=0)throw new IllegalArgumentException("Количество должно быть положительным"); }
                 case "delta" -> { if(Amounts.parse(v)==0)throw new IllegalArgumentException("Изменение количества не должно быть нулевым"); }

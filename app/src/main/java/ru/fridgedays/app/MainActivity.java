@@ -167,7 +167,7 @@ public final class MainActivity extends Activity {
         body.addView(Ui.button(this,"Проверить сводку сейчас",()->{try{ReminderReceiver.send(this,store,true);}catch(Exception e){Ui.error(this,e);}}));
         Ui.space(this,body,18);body.addView(Ui.text(this,"Резервная копия",21,Ui.INK));body.addView(Ui.text(this,"Фото, сроки и ключ семьи шифруются паролем. Без пароля восстановить копию нельзя. Она не заменяет автоматический обмен между телефонами.",14,Ui.MUTED));
         body.addView(Ui.button(this,"Сохранить зашифрованную копию",()->password(false)));body.addView(Ui.button(this,"Восстановить копию",()->password(true)));
-        body.addView(Ui.text(this,"Версия 0.4.0 · Android 12+ · хранение на телефоне",12,Ui.MUTED));
+        body.addView(Ui.text(this,"Версия 0.5.0 · Android 12+ · хранение на телефоне",12,Ui.MUTED));
     }
     private void password(boolean importing){EditText input=new EditText(this);input.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);input.setHint("Не менее 12 символов");new AlertDialog.Builder(this).setTitle(importing?"Пароль копии":"Задайте пароль копии").setView(input).setPositiveButton("Продолжить",(d,w)->{
         String p=input.getText().toString();if(p.length()<12){Ui.error(this,new IllegalArgumentException("Пароль должен содержать минимум 12 символов"));return;}if(backupPassword!=null)Arrays.fill(backupPassword,'\0');backupPassword=p.toCharArray();pendingImport=importing;

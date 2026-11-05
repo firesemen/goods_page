@@ -17,7 +17,7 @@ final class PhotoReviewDialog {
             PhotoDraft.Value value=draft.fields.get(key);if(value==null)continue;
             CheckBox box=new CheckBox(activity);box.setText(activity.getString(R.string.recognition_field,LABELS.get(key),value.text,value.calculated?" · рассчитано":""));box.setTextColor(Ui.INK);box.setTag("review-"+key);
             box.setChecked(!Set.of("manufactured","expiry","shelfDays").contains(key));body.addView(box);choices.put(key,box);
-            body.addView(Ui.text(activity,"На фото: "+value.evidence,12,Ui.MUTED));
+            body.addView(Ui.text(activity,"Источник: "+value.evidence,12,Ui.MUTED));
         }
         Map<String,Spinner> dates=new LinkedHashMap<>();for(String date:draft.unknownDates){
             Spinner role=Ui.dropdown(activity,"Дата "+date+" — назначьте по надписи на упаковке",List.of("Не переносить","Годен до","Дата изготовления"),0,body);role.setTag("unknown-"+date);dates.put(date,role);

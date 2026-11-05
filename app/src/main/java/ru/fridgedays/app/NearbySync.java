@@ -23,6 +23,8 @@ public final class NearbySync implements AutoCloseable {
     private final AtomicBoolean syncing=new AtomicBoolean();
     private final Set<Socket> sockets=ConcurrentHashMap.newKeySet();
     private final Map<String,InetSocketAddress> peers=new ConcurrentHashMap<>();
+    private final Set<String> queuedResolutions=ConcurrentHashMap.newKeySet();
+    private final Map<String,Integer> resolveFailures=new ConcurrentHashMap<>();
     private final ScheduledExecutorService ticker=Executors.newSingleThreadScheduledExecutor();
     private volatile boolean running=true;
     private ServerSocket server;
@@ -34,7 +36,8 @@ public final class NearbySync implements AutoCloseable {
         WifiManager wifi=c.getApplicationContext().getSystemService(WifiManager.class);multicast=wifi.createMulticastLock("fridge-discovery");multicast.setReferenceCounted(false);multicast.acquire();
         try{server=new ServerSocket(0);workers.execute(this::listen);
             String prefix="FD-"+invitation.family.substring(0,8)+"-"+invitation.fridge.substring(0,4);
-            String name=prefix+"-"+store.actorId().substring(0,8);
+            // A new socket must have a new NSD instance name; Android may cache the old SRV port.
+            String name=prefix+"-"+store.actorId().substring(0,8)+"-"+UUID.randomUUID().toString().substring(0,6);
             NsdServiceInfo info=new NsdServiceInfo();info.setServiceName(name);info.setServiceType(TYPE);info.setPort(server.getLocalPort());
             registration=new NsdManager.RegistrationListener(){public void onServiceRegistered(NsdServiceInfo i){}public void onRegistrationFailed(NsdServiceInfo i,int e){status.accept("Не удалось объявить телефон в Wi-Fi");}public void onServiceUnregistered(NsdServiceInfo i){}public void onUnregistrationFailed(NsdServiceInfo i,int e){}};
             nsd.registerService(info,NsdManager.PROTOCOL_DNS_SD,registration);
@@ -42,12 +45,13 @@ public final class NearbySync implements AutoCloseable {
                 public void onDiscoveryStarted(String t){}public void onDiscoveryStopped(String t){}public void onServiceLost(NsdServiceInfo i){peers.remove(i.getServiceName());}
                 public void onStartDiscoveryFailed(String t,int e){status.accept("Поиск рядом недоступен в этой сети");}public void onStopDiscoveryFailed(String t,int e){}
                 public void onServiceFound(NsdServiceInfo i){
-                    if(!running||!i.getServiceName().startsWith(prefix)||i.getServiceName().contains(store.actorId().substring(0,8))||!syncing.compareAndSet(false,true))return;
+                    if(!running||!i.getServiceName().startsWith(prefix)||i.getServiceName().contains(store.actorId().substring(0,8)) )return;
+                    if(!syncing.compareAndSet(false,true)){retryResolution(i);return;}
                     nsd.resolveService(i,new NsdManager.ResolveListener(){
-                        public void onResolveFailed(NsdServiceInfo s,int e){syncing.set(false);}
+                        public void onResolveFailed(NsdServiceInfo s,int e){syncing.set(false);if(resolveFailures.merge(i.getServiceName(),1,Integer::sum)<=3)retryResolution(i);}
                         public void onServiceResolved(NsdServiceInfo s){
                             if(!running){syncing.set(false);return;}
-                            peers.put(i.getServiceName(),new InetSocketAddress(s.getHost(),s.getPort()));
+                            resolveFailures.remove(i.getServiceName());peers.put(i.getServiceName(),new InetSocketAddress(s.getHost(),s.getPort()));
                             try{workers.execute(()->{try{exchange(s.getHost(),s.getPort());if(running)status.accept("Синхронизировано рядом · "+java.time.LocalTime.now().withSecond(0).withNano(0));}catch(Exception e){if(running)status.accept("Обмен рядом не завершён; повторите поиск");}finally{syncing.set(false);}});}catch(RejectedExecutionException ignored){syncing.set(false);}
                         }
                     });
@@ -55,6 +59,10 @@ public final class NearbySync implements AutoCloseable {
             };nsd.discoverServices(TYPE,NsdManager.PROTOCOL_DNS_SD,discovery);
             ticker.scheduleWithFixedDelay(()->{if(running&&syncing.compareAndSet(false,true))try{for(var peer:peers.values())if(running)try{exchange(peer.getAddress(),peer.getPort());status.accept("Синхронизировано рядом");}catch(Exception ignored){}}finally{syncing.set(false);}},20,20,TimeUnit.SECONDS);
         }catch(Exception e){close();throw e;}
+    }
+    private void retryResolution(NsdServiceInfo info){
+        if(!running||!queuedResolutions.add(info.getServiceName()))return;
+        try{ticker.schedule(()->{queuedResolutions.remove(info.getServiceName());if(running)discovery.onServiceFound(info);},3,TimeUnit.SECONDS);}catch(RejectedExecutionException ignored){queuedResolutions.remove(info.getServiceName());}
     }
     private void sameSpace(){if(!invitation.room().equals(store.invitation().room())||!Arrays.equals(invitation.key,store.invitation().key))throw new IllegalStateException("Семья изменилась во время обмена");}
     private Map<String,String> localPackets(){synchronized(store){sameSpace();return store.packets();}}

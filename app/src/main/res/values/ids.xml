@@ -1,4 +1,5 @@
 <resources>
+    <item name="barcode_input" type="id" /><item name="barcode_scan" type="id" /><item name="barcode_lookup" type="id" />
     <item name="ocr_endpoint" type="id" /><item name="ocr_cloud" type="id" /><item name="ocr_status" type="id" /><item name="ocr_cancel" type="id" />
     <item name="ocr_connection_check" type="id" /><item name="ocr_connection_status" type="id" />
     <item name="manufactured_input" type="id" /><item name="shelf_input" type="id" />

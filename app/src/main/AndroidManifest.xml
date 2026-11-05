@@ -13,7 +13,8 @@
             <intent-filter><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><category android:name="android.intent.category.BROWSABLE" /><data android:scheme="fridgedays" android:host="join" /></intent-filter>
         </activity>
         <activity android:name=".ScanActivity" android:exported="false" />
-        <activity android:name=".EditorActivity" android:exported="false" />
+        <activity android:name=".EditorActivity" android:exported="false" android:configChanges="orientation|screenSize" />
+        <provider android:name=".CaptureProvider" android:authorities="${applicationId}.capture" android:exported="false" android:grantUriPermissions="true" />
         <activity android:name=".PhotoSettingsActivity" android:exported="false" />
         <receiver android:name=".ReminderReceiver" android:exported="false">
             <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /><action android:name="android.intent.action.TIME_SET" /><action android:name="android.intent.action.TIMEZONE_CHANGED" /><action android:name="android.intent.action.DATE_CHANGED" /></intent-filter>
